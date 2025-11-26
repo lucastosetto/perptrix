@@ -278,9 +278,12 @@ Customize via `Config::new()` or load from JSON file.
 
 ## License
 
-[Add your license here]
+This project is released under the MIT License. See [LICENSE.md](LICENSE.md)
+for the full text and terms.
 
 ## Contributing
 
-[Add contribution guidelines here]
+Contributions are welcome! Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and quality checklist
+before opening a pull request.
 
