@@ -83,13 +83,63 @@ cargo build
 
 ### Run
 
+Provide indicator values as keyword arguments:
+
 ```bash
-cargo run
+cargo run -- --symbol <SYMBOL> --macd <VALUE> --signal <VALUE> --histogram <VALUE> --rsi <VALUE> --funding-rate <VALUE> --price <VALUE>
 ```
 
-This will execute the POC with example indicator data and generate signals.
+Example:
+```bash
+cargo run -- --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
+```
+
+Or after building:
+```bash
+./target/debug/kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
+```
+
+Show help:
+```bash
+cargo run -- --help
+```
+
+The system will:
+1. Accept indicator inputs from command-line arguments
+2. Perform calculations and analysis on the indicators
+3. Generate trading signals with direction, confidence, SL/TP recommendations
+4. Store signals in the SQLite database
 
 ## Usage
+
+### Providing Indicators
+
+Provide indicator values as keyword arguments:
+
+```bash
+kryptex --symbol <SYMBOL> --macd <VALUE> --signal <VALUE> --histogram <VALUE> --rsi <VALUE> --funding-rate <VALUE> --price <VALUE>
+```
+
+Options:
+- `--symbol, -s`: Trading symbol (e.g., BTC, ETH) - **Required**
+- `--macd, -m`: MACD line value - **Required**
+- `--signal`: MACD signal line value - **Required**
+- `--histogram`: MACD histogram value (MACD - Signal) - **Required**
+- `--rsi, -r`: RSI value (0-100) - **Required**
+- `--funding-rate, -f`: Funding rate as decimal (optional, e.g., -0.0002 for -0.02%)
+- `--price, -p`: Current price - **Required**
+- `--help, -h`: Show help message
+
+Examples:
+```bash
+# Without funding rate
+kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --price 45000.0
+
+# With funding rate
+kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
+```
+
+The system will analyze these indicators and generate signals.
 
 ### Signal Generation
 
