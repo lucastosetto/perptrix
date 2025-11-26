@@ -1,21 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MacdSignal {
-    pub macd: f64,
-    pub signal: f64,
-    pub histogram: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndicatorInput {
-    pub macd: MacdSignal,
-    pub rsi: f64,
-    pub funding_rate: Option<f64>,
-    pub price: f64,
-    pub symbol: Option<String>,
-}
-
+/// Canonical signal direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignalDirection {
     Long,
@@ -23,12 +9,14 @@ pub enum SignalDirection {
     None,
 }
 
+/// Individual reason behind a generated signal.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalReason {
     pub description: String,
     pub weight: f64,
 }
 
+/// Output artifact produced by the signal engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalOutput {
     pub direction: SignalDirection,
@@ -38,7 +26,7 @@ pub struct SignalOutput {
     pub reasons: Vec<SignalReason>,
     pub symbol: String,
     pub price: f64,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl SignalOutput {
@@ -59,8 +47,7 @@ impl SignalOutput {
             reasons,
             symbol,
             price,
-            timestamp: chrono::Utc::now(),
+            timestamp: Utc::now(),
         }
     }
 }
-

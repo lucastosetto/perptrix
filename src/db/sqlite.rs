@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, Result as SqliteResult};
-use crate::signals::types::SignalOutput;
+use crate::models::signal::{SignalDirection, SignalOutput, SignalReason};
 
 pub struct SignalDatabase {
     conn: Connection,
@@ -33,9 +33,9 @@ impl SignalDatabase {
 
     pub fn store_signal(&self, signal: &SignalOutput) -> SqliteResult<()> {
         let direction_str = match signal.direction {
-            crate::signals::types::SignalDirection::Long => "Long",
-            crate::signals::types::SignalDirection::Short => "Short",
-            crate::signals::types::SignalDirection::None => "None",
+            SignalDirection::Long => "Long",
+            SignalDirection::Short => "Short",
+            SignalDirection::None => "None",
         };
 
         let reasons_json = serde_json::to_string(&signal.reasons)
@@ -67,13 +67,13 @@ impl SignalDatabase {
         let signal_iter = stmt.query_map([], |row| {
             let direction_str: String = row.get(1)?;
             let direction = match direction_str.as_str() {
-                "Long" => crate::signals::types::SignalDirection::Long,
-                "Short" => crate::signals::types::SignalDirection::Short,
-                _ => crate::signals::types::SignalDirection::None,
+                "Long" => SignalDirection::Long,
+                "Short" => SignalDirection::Short,
+                _ => SignalDirection::None,
             };
 
             let reasons_json: String = row.get(7)?;
-            let reasons: Vec<crate::signals::types::SignalReason> = serde_json::from_str(&reasons_json)
+            let reasons: Vec<SignalReason> = serde_json::from_str(&reasons_json)
                 .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
             let timestamp_str: String = row.get(6)?;
@@ -109,13 +109,13 @@ impl SignalDatabase {
         let signal_iter = stmt.query_map(params![symbol], |row| {
             let direction_str: String = row.get(1)?;
             let direction = match direction_str.as_str() {
-                "Long" => crate::signals::types::SignalDirection::Long,
-                "Short" => crate::signals::types::SignalDirection::Short,
-                _ => crate::signals::types::SignalDirection::None,
+                "Long" => SignalDirection::Long,
+                "Short" => SignalDirection::Short,
+                _ => SignalDirection::None,
             };
 
             let reasons_json: String = row.get(7)?;
-            let reasons: Vec<crate::signals::types::SignalReason> = serde_json::from_str(&reasons_json)
+            let reasons: Vec<SignalReason> = serde_json::from_str(&reasons_json)
                 .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
             let timestamp_str: String = row.get(6)?;

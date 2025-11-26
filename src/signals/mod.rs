@@ -1,6 +1,5 @@
-pub mod types;
-pub mod signal_generator;
+//! Signal evaluation interfaces.
 
-pub use types::*;
-pub use signal_generator::SignalGenerator;
-
+pub mod engine {
+    //! Signal evaluation orchestration placeholder.
+}

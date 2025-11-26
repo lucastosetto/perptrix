@@ -11,16 +11,15 @@ Kryptex is designed to:
 4. Execute Long/Short orders in perpetual futures
 5. Maintain modularity to allow changing exchanges without altering core logic
 
-## Current Status: Phase 1 POC
+## Current Status: Phase 2 Scaffold
 
-The current implementation is a **Proof of Concept** that validates the core signal generation logic:
+The POC has been archived in favor of the production-ready architecture defined in the [@Kryptex RFC](https://github.com/lucastosetto/kryptex/wiki/1.-RFC-%E2%80%90-Kryptex:-Crypto-Perps-Signal-&-Execution-Engine):
 
-- ✅ Receives external indicator inputs (MACD, RSI, funding rate)
-- ✅ Generates LONG/SHORT signals with confidence scores
-- ✅ Provides recommended SL/TP percentages
-- ✅ Stores signals in SQLite database
-- ❌ Does not connect to any exchange yet
-- ❌ Does not execute trades
+- ✅ Removed CLI runner, prototype weighting logic, and temporary helpers
+- ✅ Created the long-term module tree (core, indicators, signals, models, services, strategies, evaluation, common)
+- ✅ Preserved configuration and persistence crates for reuse
+- 🔄 Implementing native indicator and signal engines within the new layers
+- 🔜 Wiring exchange adapters, execution engine, and orchestration services
 
 ## Architecture
 
@@ -55,17 +54,17 @@ The current implementation is a **Proof of Concept** that validates the core sig
 
 ```
 src/
-  config/
-    mod.rs              # Configuration management
-  signals/
-    types.rs            # Input/output types (IndicatorInput, SignalOutput)
-    signal_generator.rs # Signal generation logic
-    mod.rs
-  db/
-    sqlite.rs           # SQLite persistence layer
-    mod.rs
-  main.rs               # POC runner
-  lib.rs
+  common/               # Shared helpers (math, time, serialization)
+  config/               # Configuration management (unchanged from POC)
+  core/                 # Bootstrap/orchestration entry points
+  db/                   # Persistence adapters (SQLite)
+  evaluation/           # Signal scoring and validation utilities
+  indicators/           # Native indicator implementations (MACD, RSI, etc.)
+  models/               # Shared DTOs for indicators, signals, execution
+  services/             # Long-lived services (market data, persistence facades)
+  signals/              # Signal evaluation engine coordination
+  strategies/           # Strategy definitions that use indicators + services
+  lib.rs                # Crate root exposing layered modules
 ```
 
 ## Installation
@@ -78,130 +77,27 @@ src/
 ### Build
 
 ```bash
-cargo build
+cargo check
 ```
 
-### Run
+> The repository currently exposes library modules only; no CLI binary ships with the Phase 2 scaffold.
 
-Provide indicator values as keyword arguments:
+## Working with the Scaffold
 
-```bash
-cargo run -- --symbol <SYMBOL> --macd <VALUE> --signal <VALUE> --histogram <VALUE> --rsi <VALUE> --funding-rate <VALUE> --price <VALUE>
-```
+The following layers now exist as empty modules that will be filled in during subsequent issues:
 
-Example:
-```bash
-cargo run -- --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
-```
-
-Or after building:
-```bash
-./target/debug/kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
-```
-
-Show help:
-```bash
-cargo run -- --help
-```
-
-The system will:
-1. Accept indicator inputs from command-line arguments
-2. Perform calculations and analysis on the indicators
-3. Generate trading signals with direction, confidence, SL/TP recommendations
-4. Store signals in the SQLite database
-
-## Usage
-
-### Providing Indicators
-
-Provide indicator values as keyword arguments:
-
-```bash
-kryptex --symbol <SYMBOL> --macd <VALUE> --signal <VALUE> --histogram <VALUE> --rsi <VALUE> --funding-rate <VALUE> --price <VALUE>
-```
-
-Options:
-- `--symbol, -s`: Trading symbol (e.g., BTC, ETH) - **Required**
-- `--macd, -m`: MACD line value - **Required**
-- `--signal`: MACD signal line value - **Required**
-- `--histogram`: MACD histogram value (MACD - Signal) - **Required**
-- `--rsi, -r`: RSI value (0-100) - **Required**
-- `--funding-rate, -f`: Funding rate as decimal (optional, e.g., -0.0002 for -0.02%)
-- `--price, -p`: Current price - **Required**
-- `--help, -h`: Show help message
-
-Examples:
-```bash
-# Without funding rate
-kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --price 45000.0
-
-# With funding rate
-kryptex --symbol BTC --macd 0.5 --signal 0.3 --histogram 0.2 --rsi 25.0 --funding-rate -0.0002 --price 45000.0
-```
-
-The system will analyze these indicators and generate signals.
-
-### Signal Generation
-
-The signal generator takes `IndicatorInput` and produces `SignalOutput`:
-
-```rust
-use kryptex::signals::{IndicatorInput, MacdSignal, SignalGenerator};
-use kryptex::config::Config;
-
-let config = Config::default();
-let generator = SignalGenerator::new(config);
-
-let input = IndicatorInput {
-    macd: MacdSignal {
-        macd: 0.5,
-        signal: 0.3,
-        histogram: 0.2,
-    },
-    rsi: 25.0,
-    funding_rate: -0.0002,
-    price: 45000.0,
-    symbol: Some("BTC".to_string()),
-};
-
-let signal = generator.generate_signal(&input);
-```
-
-### Signal Output
-
-Each signal includes:
-- **Direction**: `Long`, `Short`, or `None`
-- **Confidence**: 0.0 to 1.0
-- **Recommended SL/TP**: Dynamic percentages based on confidence
-- **Reasons**: List of contributing factors with weights
+- **`core/`** – bootstrap/orchestration glue.
+- **`indicators/`** – native indicator engines and candle aggregation.
+- **`signals/`** – interprets indicator outputs into actionable signals.
+- **`models/`** – shared DTOs across indicators, signals, execution, and persistence.
+- **`services/`** – data feeds, persistence coordinators, and adapters.
+- **`strategies/`** – named strategies composed of indicators + services.
+- **`evaluation/`** – scoring, simulation harnesses, and quality gates.
+- **`common/`** – cross-cutting utilities (math/time/helpers).
 
 ## Validation
 
-Run the automated Phase 1 scenarios (strong/borderline/neutral/MACD-only/extremes) with:
-
-```bash
-cargo test --test signal_scenarios
-```
-
-Each test asserts direction, confidence range, SL/TP scaling, and reason weights for the target market condition.
-
-For manual spot checks or new inputs, use the CLI runner:
-
-```bash
-cargo run -- \
-  --symbol BTC \
-  --macd 60.0 \
-  --signal 20.0 \
-  --histogram 25.0 \
-  --rsi 22.0 \
-  --funding-rate -0.0005 \
-  --price 45000.0
-```
-
-Interpretation tips:
-- Confidence is expressed as 0.0–1.0; multiply by 100 for percent.
-- SL decreases and TP increases as confidence rises; neutral outputs keep defaults and mark SL/TP as N/A.
-- The `Reasons` list enumerates MACD/RSI/Histogram/Funding contributions so you can verify which indicators drove the call.
+Phase 1 scenario tests and CLI spot checks have been removed along with the POC. Use `cargo check` during development until new automated suites land with the production modules.
 
 ### Persistence
 
