@@ -14,18 +14,18 @@ pub fn ema(values: &[f64], period: usize) -> Option<f64> {
     if values.is_empty() || period == 0 {
         return None;
     }
-    
+
     if values.len() < period {
         return None;
     }
-    
+
     let multiplier = 2.0 / (period as f64 + 1.0);
     let mut ema_value = sma(&values[..period], period)?;
-    
+
     for &value in values.iter().skip(period) {
         ema_value = (value - ema_value) * multiplier + ema_value;
     }
-    
+
     Some(ema_value)
 }
 
@@ -40,7 +40,7 @@ pub fn standard_deviation(values: &[f64], period: usize) -> Option<f64> {
     if values.len() < period {
         return None;
     }
-    
+
     let mean = sma(values, period)?;
     let variance: f64 = values
         .iter()
@@ -52,7 +52,7 @@ pub fn standard_deviation(values: &[f64], period: usize) -> Option<f64> {
         })
         .sum::<f64>()
         / period as f64;
-    
+
     Some(variance.sqrt())
 }
 
@@ -63,5 +63,3 @@ pub fn true_range(current_high: f64, current_low: f64, previous_close: f64) -> f
     let lc = (current_low - previous_close).abs();
     hl.max(hc).max(lc)
 }
-
-

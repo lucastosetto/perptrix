@@ -6,14 +6,15 @@ pub enum IndicatorCategory {
     Momentum,
     Trend,
     Volatility,
-    MarketStructure,
+    Volume,
+    Perp,
 }
 
 /// Trait for all indicators
 pub trait Indicator {
     /// Get the category this indicator belongs to
     fn category(&self) -> IndicatorCategory;
-    
+
     /// Get the name of the indicator
     fn name(&self) -> &'static str;
 }
@@ -26,21 +27,21 @@ impl IndicatorRegistry {
     pub fn category_weight(category: IndicatorCategory) -> f64 {
         match category {
             IndicatorCategory::Momentum => 0.25,
-            IndicatorCategory::Trend => 0.35,
-            IndicatorCategory::Volatility => 0.20,
-            IndicatorCategory::MarketStructure => 0.20,
+            IndicatorCategory::Trend => 0.30,
+            IndicatorCategory::Volatility => 0.15,
+            IndicatorCategory::Volume => 0.15,
+            IndicatorCategory::Perp => 0.15,
         }
     }
-    
+
     /// Get all categories
     pub fn all_categories() -> Vec<IndicatorCategory> {
         vec![
             IndicatorCategory::Momentum,
             IndicatorCategory::Trend,
             IndicatorCategory::Volatility,
-            IndicatorCategory::MarketStructure,
+            IndicatorCategory::Volume,
+            IndicatorCategory::Perp,
         ]
     }
 }
-
-

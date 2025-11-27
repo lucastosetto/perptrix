@@ -1,175 +1,152 @@
-//! Main signal evaluation engine
+//! Main signal evaluation engine powered by the multi-dimensional indicator stack.
 
-use crate::indicators::registry::IndicatorCategory;
+use std::collections::VecDeque;
+
+use crate::engine::aggregator::{IndicatorSignals, SignalAggregator};
+use crate::indicators::momentum::{macd, rsi};
+use crate::indicators::perp::{funding_rate, open_interest};
+use crate::indicators::trend::{ema, supertrend};
+use crate::indicators::volatility::{atr, bollinger};
+use crate::indicators::volume::{obv, volume_profile};
 use crate::models::indicators::{Candle, IndicatorSet};
-use crate::models::signal::{SignalDirection, SignalOutput};
-use crate::signals::aggregation::{Aggregator, IndicatorScore};
-use crate::signals::decision::{DirectionThresholds, StopLossTakeProfit};
-use crate::signals::scoring::*;
+use crate::models::signal::{SignalDirection, SignalOutput, SignalReason};
+use crate::signals::decision::StopLossTakeProfit;
 
-use crate::indicators::momentum::{calculate_macd_default, calculate_rsi_default};
-use crate::indicators::trend::{calculate_ema, calculate_adx_default};
-use crate::indicators::volatility::{calculate_bollinger_bands_default, calculate_atr_default};
-use crate::indicators::structure::{calculate_supertrend_default, calculate_support_resistance_default};
+const ATR_LOOKBACK: usize = 14;
+const VOLUME_PROFILE_LOOKBACK: usize = 240;
+const VOLUME_PROFILE_TICK: f64 = 10.0;
+const MIN_CANDLES: usize = 50;
 
 /// Main signal evaluation engine
 pub struct SignalEngine;
 
 impl SignalEngine {
-    /// Evaluate signal from candles
+    /// Evaluate signal from candles augmented with perp metrics.
     pub fn evaluate(candles: &[Candle], symbol: &str) -> Option<SignalOutput> {
-        if candles.is_empty() {
+        if candles.len() < MIN_CANDLES {
             return None;
         }
 
         let current_price = candles.last()?.close;
-        let mut indicator_scores = Vec::new();
 
-        // Calculate all indicators and normalize scores
-        // Momentum indicators
-        if let Some(rsi) = calculate_rsi_default(candles) {
-            let score = normalize_rsi(rsi.value);
-            indicator_scores.push(IndicatorScore {
-                name: "RSI".to_string(),
-                score,
-                category: IndicatorCategory::Momentum,
-                weight: 1.0,
-            });
-        }
+        let mut ema_cross = ema::EMACrossover::new(20, 50);
+        let mut supertrend = supertrend::SuperTrend::new(10, 3.0);
+        let mut rsi = rsi::RSI::new(14);
+        let mut macd = macd::MACD::new(12, 26, 9);
+        let mut atr = atr::ATR::new(14);
+        let mut bollinger = bollinger::BollingerBands::new(20, 2.0);
+        let mut obv = obv::OBV::new();
+        let mut volume_profile =
+            volume_profile::VolumeProfile::new(VOLUME_PROFILE_TICK, VOLUME_PROFILE_LOOKBACK);
+        let mut open_interest = open_interest::OpenInterest::new();
+        let mut funding_rate = funding_rate::FundingRate::new(24);
+        let mut atr_history: VecDeque<f64> = VecDeque::new();
+        let mut prev_close: Option<f64> = None;
 
-        if let Some(macd) = calculate_macd_default(candles) {
-            let scale = 1.0; // Adjust based on typical MACD values
-            let score = normalize_macd_histogram(macd.histogram, scale);
-            indicator_scores.push(IndicatorScore {
-                name: "MACD".to_string(),
-                score,
-                category: IndicatorCategory::Momentum,
-                weight: 1.0,
-            });
-        }
+        let mut ema_signal = ema::EMATrendSignal::Neutral;
+        let mut supertrend_signal = supertrend::SuperTrendSignal::Bearish;
+        let mut rsi_signal = rsi::RSISignal::Neutral;
+        let mut macd_signal = macd::MACDSignal::Neutral;
+        let mut bollinger_signal = bollinger::BollingerSignal::Neutral;
+        let mut volatility_regime = atr::VolatilityRegime::Normal;
+        let mut obv_signal = obv::OBVSignal::Neutral;
+        let mut volume_profile_signal = volume_profile::VolumeProfileSignal::Neutral;
+        let mut oi_signal = open_interest::OpenInterestSignal::Neutral;
+        let mut funding_signal = funding_rate::FundingSignal::Neutral;
 
-        // Trend indicators
-        if let Some(ema12) = calculate_ema(candles, 12) {
-            if let Some(ema26) = calculate_ema(candles, 26) {
-                let cross = if ema12.value > ema26.value { 1 } else { -1 };
-                let score = normalize_ema_cross(cross);
-                indicator_scores.push(IndicatorScore {
-                    name: "EMA 12/26 Cross".to_string(),
-                    score,
-                    category: IndicatorCategory::Trend,
-                    weight: 1.0,
-                });
-            }
-        }
+        for candle in candles {
+            ema_signal = ema_cross.update(candle.close);
+            supertrend_signal = supertrend.update(candle.high, candle.low, candle.close);
 
-        if let Some(ema50) = calculate_ema(candles, 50) {
-            if let Some(ema200) = calculate_ema(candles, 200) {
-                let cross = if ema50.value > ema200.value { 1 } else { -1 };
-                let score = normalize_ema_cross(cross);
-                indicator_scores.push(IndicatorScore {
-                    name: "EMA 50/200 Cross".to_string(),
-                    score,
-                    category: IndicatorCategory::Trend,
-                    weight: 1.0,
-                });
-            }
-        }
-
-        if let Some(adx) = calculate_adx_default(candles) {
-            let score = normalize_adx(adx.value);
-            indicator_scores.push(IndicatorScore {
-                name: "ADX".to_string(),
-                score,
-                category: IndicatorCategory::Trend,
-                weight: 1.0,
-            });
-        }
-
-        // Volatility indicators
-        if let Some(bb) = calculate_bollinger_bands_default(candles) {
-            let score = normalize_bollinger_position(current_price, bb.lower, bb.upper);
-            indicator_scores.push(IndicatorScore {
-                name: "Bollinger Bands".to_string(),
-                score,
-                category: IndicatorCategory::Volatility,
-                weight: 1.0,
-            });
-        }
-
-        let atr_value = calculate_atr_default(candles);
-        let atr_value_for_sl_tp = atr_value.clone();
-        if let Some(ref atr) = atr_value {
-            let score = normalize_atr(atr.value, current_price);
-            indicator_scores.push(IndicatorScore {
-                name: "ATR".to_string(),
-                score,
-                category: IndicatorCategory::Volatility,
-                weight: 1.0,
-            });
-        }
-
-        // Market structure indicators
-        if let Some(st) = calculate_supertrend_default(candles) {
-            let score = normalize_supertrend(st.trend);
-            indicator_scores.push(IndicatorScore {
-                name: "SuperTrend".to_string(),
-                score,
-                category: IndicatorCategory::MarketStructure,
-                weight: 1.0,
-            });
-        }
-
-        if let Some(sr) = calculate_support_resistance_default(candles, current_price) {
-            let score = normalize_support_resistance(
-                current_price,
-                sr.support_level,
-                sr.resistance_level,
-            );
-            indicator_scores.push(IndicatorScore {
-                name: "Support/Resistance".to_string(),
-                score,
-                category: IndicatorCategory::MarketStructure,
-                weight: 1.0,
-            });
-        }
-
-        if indicator_scores.is_empty() {
-            return None;
-        }
-
-        // Aggregate by category
-        let category_scores = Aggregator::aggregate_by_category(&indicator_scores);
-
-        // Calculate global score (normalized -1 to +1)
-        let global_score_normalized = Aggregator::calculate_global_score(&category_scores);
-
-        // Convert to percentage (0 to 1) for direction decision
-        let global_score_pct = DirectionThresholds::to_percentage(global_score_normalized);
-
-        // Determine direction
-        let direction = DirectionThresholds::determine_direction(global_score_pct);
-
-        // Calculate SL/TP from ATR if we have a directional signal
-        let (sl_pct, tp_pct) = if let Some(atr) = atr_value_for_sl_tp {
-            match direction {
-                SignalDirection::Long | SignalDirection::Short => {
-                    StopLossTakeProfit::calculate_from_atr(atr.value, current_price)
+            if let Some(rsi_value) = rsi.update(candle.close) {
+                if let Some(prev) = prev_close {
+                    let price_change = candle.close - prev;
+                    rsi_signal = rsi.get_signal(rsi_value, price_change);
                 }
-                SignalDirection::Neutral => (0.0, 0.0),
             }
-        } else {
-            (0.0, 0.0)
+
+            let (_, _, _, macd_sig) = macd.update(candle.close);
+            macd_signal = macd_sig;
+
+            let (_, _, _, bb_sig) = bollinger.update(candle.close);
+            bollinger_signal = bb_sig;
+
+            let atr_value = atr.update(candle.high, candle.low, candle.close);
+            atr_history.push_back(atr_value);
+            if atr_history.len() > ATR_LOOKBACK {
+                atr_history.pop_front();
+            }
+            let lookback_avg = if atr_history.is_empty() {
+                atr_value
+            } else {
+                atr_history.iter().sum::<f64>() / atr_history.len() as f64
+            };
+            volatility_regime = atr.get_volatility_regime(atr_value, lookback_avg);
+
+            let (_, obv_sig) = obv.update(candle.close, candle.volume);
+            obv_signal = obv_sig;
+
+            volume_profile.update(candle.close, candle.volume);
+            let (_, _, vp_sig) = volume_profile.get_profile();
+            volume_profile_signal = vp_sig;
+
+            if let Some(oi) = candle.open_interest {
+                oi_signal = open_interest.update(oi, candle.close);
+            }
+
+            if let Some(funding) = candle.funding_rate {
+                let (funding_sig, _) = funding_rate.update(funding);
+                funding_signal = funding_sig;
+            }
+
+            prev_close = Some(candle.close);
+        }
+
+        let indicator_signals = IndicatorSignals {
+            ema_signal,
+            supertrend_signal,
+            rsi_signal,
+            macd_signal,
+            bollinger_signal,
+            volatility_regime,
+            obv_signal,
+            volume_profile_signal,
+            oi_signal,
+            funding_signal,
         };
 
-        // Calculate confidence
-        let confidence = calculate_confidence(global_score_normalized);
+        let trading_signal = SignalAggregator::new().aggregate(indicator_signals);
 
-        // Generate reasons
-        let reasons = Aggregator::generate_reasons(&indicator_scores, &category_scores, global_score_normalized);
+        let direction = match trading_signal.position {
+            crate::engine::signal::Position::Long => SignalDirection::Long,
+            crate::engine::signal::Position::Short => SignalDirection::Short,
+            crate::engine::signal::Position::Neutral => SignalDirection::Neutral,
+        };
+
+        let atr_value = atr.current().unwrap_or(0.0);
+        let (sl_pct, tp_pct) = match direction {
+            SignalDirection::Long | SignalDirection::Short if atr_value > 0.0 => {
+                StopLossTakeProfit::calculate_from_atr(atr_value, current_price)
+            }
+            _ => (0.0, 0.0),
+        };
+
+        let mut reasons: Vec<SignalReason> = trading_signal
+            .reasons
+            .iter()
+            .map(|reason| SignalReason {
+                description: reason.clone(),
+                weight: 1.0,
+            })
+            .collect();
+        reasons.push(SignalReason {
+            description: format!("Risk level: {:?}", trading_signal.risk_level),
+            weight: 0.5,
+        });
 
         Some(SignalOutput::new(
             direction,
-            confidence,
+            trading_signal.confidence,
             sl_pct,
             tp_pct,
             reasons,
@@ -178,25 +155,22 @@ impl SignalEngine {
         ))
     }
 
-    /// Evaluate signal and return full indicator set
-    pub fn evaluate_with_indicators(candles: &[Candle], symbol: &str) -> Option<(SignalOutput, IndicatorSet)> {
+    /// Evaluate signal and return full indicator set (for API responses/debugging)
+    pub fn evaluate_with_indicators(
+        candles: &[Candle],
+        symbol: &str,
+    ) -> Option<(SignalOutput, IndicatorSet)> {
         let signal = Self::evaluate(candles, symbol)?;
-        
         let mut indicator_set = IndicatorSet::new(symbol.to_string(), signal.price);
-        
-        if let Some(rsi) = calculate_rsi_default(candles) {
-            indicator_set = indicator_set.with_rsi(rsi);
+
+        if let Some(funding_rate) = candles.last().and_then(|c| c.funding_rate) {
+            indicator_set = indicator_set.with_funding_rate(funding_rate);
         }
-        
-        if let Some(macd) = calculate_macd_default(candles) {
-            indicator_set = indicator_set.with_macd(macd);
+
+        if let Some(open_interest) = candles.last().and_then(|c| c.open_interest) {
+            indicator_set = indicator_set.with_open_interest(open_interest);
         }
-        
-        // Add other indicators to indicator_set as needed
-        // For now, we'll focus on the core functionality
-        
+
         Some((signal, indicator_set))
     }
 }
-
-

@@ -12,8 +12,8 @@ mod indicators_momentum_rsi;
 #[path = "indicators/trend/ema.rs"]
 mod indicators_trend_ema;
 
-#[path = "indicators/trend/adx.rs"]
-mod indicators_trend_adx;
+#[path = "indicators/trend/supertrend.rs"]
+mod indicators_trend_supertrend;
 
 #[path = "indicators/volatility/bollinger.rs"]
 mod indicators_volatility_bollinger;
@@ -21,11 +21,17 @@ mod indicators_volatility_bollinger;
 #[path = "indicators/volatility/atr.rs"]
 mod indicators_volatility_atr;
 
-#[path = "indicators/structure/supertrend.rs"]
-mod indicators_structure_supertrend;
+#[path = "indicators/volume/obv.rs"]
+mod indicators_volume_obv;
 
-#[path = "indicators/structure/support_resistance.rs"]
-mod indicators_structure_support_resistance;
+#[path = "indicators/volume/volume_profile.rs"]
+mod indicators_volume_volume_profile;
+
+#[path = "indicators/perp/open_interest.rs"]
+mod indicators_perp_open_interest;
+
+#[path = "indicators/perp/funding_rate.rs"]
+mod indicators_perp_funding_rate;
 
 #[path = "indicators/parser.rs"]
 mod indicators_parser;
@@ -33,20 +39,14 @@ mod indicators_parser;
 #[path = "indicators/registry.rs"]
 mod indicators_registry;
 
-#[path = "signals/aggregation.rs"]
-mod signals_aggregation;
-
-#[path = "signals/categories.rs"]
-mod signals_categories;
-
-#[path = "signals/scoring.rs"]
-mod signals_scoring;
-
 #[path = "signals/decision.rs"]
 mod signals_decision;
 
 #[path = "signals/engine.rs"]
 mod signals_engine;
+
+#[path = "engine/aggregator.rs"]
+mod engine_aggregator;
 
 #[path = "services/market_data.rs"]
 mod services_market_data;
@@ -56,4 +56,3 @@ mod core_http;
 
 #[path = "core/runtime.rs"]
 mod core_runtime;
-

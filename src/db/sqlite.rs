@@ -1,5 +1,5 @@
-use rusqlite::{params, Connection, Result as SqliteResult};
 use crate::models::signal::{SignalDirection, SignalOutput, SignalReason};
+use rusqlite::{params, Connection, Result as SqliteResult};
 
 pub struct SignalDatabase {
     conn: Connection,
@@ -143,12 +143,9 @@ impl SignalDatabase {
     }
 
     pub fn get_signal_count(&self) -> SqliteResult<usize> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM signals",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM signals", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 }
-

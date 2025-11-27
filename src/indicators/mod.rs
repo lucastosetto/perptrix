@@ -1,14 +1,15 @@
 pub mod error;
 pub mod parser;
-pub mod validation;
 pub mod registry;
+pub mod validation;
 
 pub mod momentum;
+pub mod perp;
 pub mod trend;
 pub mod volatility;
-pub mod structure;
+pub mod volume;
 
 pub use error::IndicatorError;
 pub use parser::*;
-pub use validation::*;
 pub use registry::*;
+pub use validation::*;

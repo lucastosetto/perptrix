@@ -207,4 +207,3 @@ pub fn validate_indicator_set(set: &IndicatorSet) -> Result<(), IndicatorError> 
 
     Ok(())
 }
-

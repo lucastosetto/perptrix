@@ -9,10 +9,21 @@ pub struct Candle {
     pub close: f64,
     pub volume: f64,
     pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_interest: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub funding_rate: Option<f64>,
 }
 
 impl Candle {
-    pub fn new(open: f64, high: f64, low: f64, close: f64, volume: f64, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             open,
             high,
@@ -20,7 +31,19 @@ impl Candle {
             close,
             volume,
             timestamp,
+            open_interest: None,
+            funding_rate: None,
         }
+    }
+
+    pub fn with_open_interest(mut self, open_interest: f64) -> Self {
+        self.open_interest = Some(open_interest);
+        self
+    }
+
+    pub fn with_funding_rate(mut self, funding_rate: f64) -> Self {
+        self.funding_rate = Some(funding_rate);
+        self
     }
 }
 
@@ -77,14 +100,6 @@ pub struct AtrIndicator {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdxIndicator {
-    pub value: f64,
-    pub plus_di: f64,
-    pub minus_di: f64,
-    pub period: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuperTrendIndicator {
     pub value: f64,
     pub trend: i32,
@@ -95,19 +110,13 @@ pub struct SuperTrendIndicator {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupportResistanceIndicator {
-    pub support_level: Option<f64>,
-    pub resistance_level: Option<f64>,
-    pub support_distance_pct: Option<f64>,
-    pub resistance_distance_pct: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndicatorSet {
     pub symbol: String,
     pub price: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub funding_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_interest: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub macd: Option<MacdIndicator>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,11 +132,7 @@ pub struct IndicatorSet {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub atr: Option<AtrIndicator>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adx: Option<AdxIndicator>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub supertrend: Option<SuperTrendIndicator>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub support_resistance: Option<SupportResistanceIndicator>,
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeframe: Option<String>,
@@ -139,6 +144,7 @@ impl IndicatorSet {
             symbol,
             price,
             funding_rate: None,
+            open_interest: None,
             macd: None,
             rsi: None,
             emas: Vec::new(),
@@ -146,9 +152,7 @@ impl IndicatorSet {
             volume: None,
             bollinger_bands: None,
             atr: None,
-            adx: None,
             supertrend: None,
-            support_resistance: None,
             timestamp: Utc::now(),
             timeframe: None,
         }
@@ -166,6 +170,11 @@ impl IndicatorSet {
 
     pub fn with_funding_rate(mut self, funding_rate: f64) -> Self {
         self.funding_rate = Some(funding_rate);
+        self
+    }
+
+    pub fn with_open_interest(mut self, open_interest: f64) -> Self {
+        self.open_interest = Some(open_interest);
         self
     }
 

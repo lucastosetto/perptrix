@@ -1,8 +1,7 @@
 //! Volatility indicators: Bollinger Bands, ATR
 
-pub mod bollinger;
 pub mod atr;
+pub mod bollinger;
 
-pub use bollinger::*;
 pub use atr::*;
-
+pub use bollinger::*;

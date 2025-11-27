@@ -6,8 +6,16 @@ pub enum IndicatorError {
     ValidationError(String),
     MissingField(String),
     InvalidNumericFormat(String),
-    OutOfRange { field: String, value: f64, min: f64, max: f64 },
-    InvalidPeriod { field: String, value: u32 },
+    OutOfRange {
+        field: String,
+        value: f64,
+        min: f64,
+        max: f64,
+    },
+    InvalidPeriod {
+        field: String,
+        value: u32,
+    },
 }
 
 impl fmt::Display for IndicatorError {
@@ -19,7 +27,12 @@ impl fmt::Display for IndicatorError {
             IndicatorError::InvalidNumericFormat(value) => {
                 write!(f, "Invalid numeric format: {}", value)
             }
-            IndicatorError::OutOfRange { field, value, min, max } => {
+            IndicatorError::OutOfRange {
+                field,
+                value,
+                min,
+                max,
+            } => {
                 write!(
                     f,
                     "Field '{}' value {} is out of range [{}, {}]",
@@ -34,4 +47,3 @@ impl fmt::Display for IndicatorError {
 }
 
 impl std::error::Error for IndicatorError {}
-

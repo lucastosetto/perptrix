@@ -1,12 +1,6 @@
 //! HTTP endpoint server using Axum
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::get, Router};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -60,11 +54,9 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     };
     let app = create_router(state);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-    
+
     println!("HTTP server listening on port {}", port);
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }
-
-

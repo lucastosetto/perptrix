@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::indicators::error::IndicatorError;
 use crate::indicators::validation::*;
 use crate::models::indicators::*;
+use std::collections::HashMap;
 
 pub fn parse_f64(value: &str) -> Result<f64, IndicatorError> {
     value
@@ -73,11 +73,7 @@ pub fn parse_macd_from_map(
         data.get("macd_slow_period"),
         data.get("macd_signal_period"),
     ) {
-        Some((
-            parse_u32(fast)?,
-            parse_u32(slow)?,
-            parse_u32(signal)?,
-        ))
+        Some((parse_u32(fast)?, parse_u32(slow)?, parse_u32(signal)?))
     } else {
         None
     };
@@ -98,10 +94,7 @@ pub fn parse_rsi_from_map(data: &HashMap<String, String>) -> Result<RsiIndicator
         .parse::<f64>()
         .map_err(|_| IndicatorError::InvalidNumericFormat("rsi".to_string()))?;
 
-    let period = data
-        .get("rsi_period")
-        .map(|s| parse_u32(s))
-        .transpose()?;
+    let period = data.get("rsi_period").map(|s| parse_u32(s)).transpose()?;
 
     parse_rsi(value, period)
 }
@@ -171,5 +164,3 @@ pub fn parse_indicator_set_from_map(
     validate_indicator_set(&set)?;
     Ok(set)
 }
-
-

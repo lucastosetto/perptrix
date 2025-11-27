@@ -147,4 +147,3 @@ fn test_parse_volume_valid() {
 fn test_parse_volume_invalid() {
     assert!(parse_volume(-100.0, None, None).is_err());
 }
-

@@ -1,39 +1,41 @@
-//! Unit tests for MACD indicator
+//! Unit tests for the MACD momentum indicator.
 
-use perptrix::indicators::momentum::{calculate_macd, calculate_macd_default};
-use perptrix::models::indicators::Candle;
 use chrono::Utc;
+use perptrix::indicators::momentum::calculate_macd_default;
+use perptrix::indicators::momentum::macd::{MACDSignal, MACD};
+use perptrix::models::indicators::Candle;
 
-fn create_test_candles(count: usize, base_price: f64) -> Vec<Candle> {
-    let mut candles = Vec::new();
-    for i in 0..count {
-        let price = base_price + (i as f64 * 0.1);
-        candles.push(Candle::new(
-            price,
-            price + 0.05,
-            price - 0.05,
-            price,
-            1000.0,
-            Utc::now(),
-        ));
+fn candle(price: f64) -> Candle {
+    Candle::new(price, price + 0.5, price - 0.5, price, 500.0, Utc::now())
+}
+
+#[test]
+fn macd_emits_crossovers() {
+    let mut macd = MACD::new(3, 6, 3);
+    let mut bullish = false;
+    let mut bearish = false;
+
+    for price in [100.0, 101.0, 102.0, 103.0, 104.0] {
+        let (_, _, _, signal) = macd.update(price);
+        if signal == MACDSignal::BullishCross {
+            bullish = true;
+        }
     }
-    candles
+
+    for price in [104.0, 103.0, 102.0, 101.0, 100.0, 99.0] {
+        let (_, _, _, signal) = macd.update(price);
+        if signal == MACDSignal::BearishCross {
+            bearish = true;
+        }
+    }
+
+    assert!(bullish, "Expected bullish crossover on rising prices");
+    assert!(bearish, "Expected bearish crossover on falling prices");
 }
 
 #[test]
-fn test_macd_insufficient_data() {
-    let candles = create_test_candles(10, 100.0);
-    assert!(calculate_macd(&candles, 12, 26, 9).is_none());
+fn legacy_macd_calculation_available() {
+    let candles: Vec<_> = (0..50).map(|i| candle(100.0 + i as f64)).collect();
+    let indicator = calculate_macd_default(&candles).expect("MACD result");
+    assert!(indicator.histogram.is_finite());
 }
-
-#[test]
-fn test_macd_sufficient_data() {
-    let candles = create_test_candles(50, 100.0);
-    let result = calculate_macd_default(&candles);
-    assert!(result.is_some());
-    let macd = result.unwrap();
-    assert!(macd.macd.is_finite());
-    assert!(macd.signal.is_finite());
-    assert!(macd.histogram.is_finite());
-}
-

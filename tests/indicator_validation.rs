@@ -175,7 +175,7 @@ fn test_validate_ema_invalid() {
         period: 20,
     };
     assert!(validate_ema(&ema).is_err());
-    
+
     let ema = EmaIndicator {
         value: 100.0,
         period: 0,
@@ -234,7 +234,7 @@ fn test_validate_indicator_set_valid() {
         value: 50.0,
         period: None,
     });
-    
+
     assert!(validate_indicator_set(&set).is_ok());
 }
 
@@ -278,4 +278,3 @@ fn test_validate_indicator_set_invalid_funding_rate() {
     set = set.with_funding_rate(2.0);
     assert!(validate_indicator_set(&set).is_err());
 }
-

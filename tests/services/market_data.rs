@@ -9,4 +9,3 @@ fn test_placeholder_provider() {
     assert!(provider.get_latest_price("BTC").is_ok());
     assert!(provider.subscribe("BTC").is_ok());
 }
-

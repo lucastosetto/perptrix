@@ -1,44 +1,102 @@
-//! ATR (Average True Range) indicator
+//! ATR (Average True Range) volatility regime detector.
 
-use crate::common::math;
 use crate::models::indicators::{AtrIndicator, Candle};
 
-/// Calculate ATR (Average True Range)
-/// 
-/// ATR measures market volatility by averaging true range over a period
-pub fn calculate_atr(candles: &[Candle], period: u32) -> Option<AtrIndicator> {
-    if candles.len() < period as usize + 1 {
-        return None;
-    }
-
-    let mut tr_values = Vec::new();
-
-    for i in 1..candles.len() {
-        let tr = math::true_range(
-            candles[i].high,
-            candles[i].low,
-            candles[i - 1].close,
-        );
-        tr_values.push(tr);
-    }
-
-    if tr_values.len() < period as usize {
-        return None;
-    }
-
-    // ATR is typically calculated using smoothed moving average (Wilder's smoothing)
-    // For simplicity, we'll use SMA here
-    let atr_value = math::sma(&tr_values, period as usize)?;
-
-    Some(AtrIndicator {
-        value: atr_value,
-        period,
-    })
+#[derive(Debug, Clone)]
+pub struct ATR {
+    period: usize,
+    true_ranges: Vec<f64>,
+    current_atr: Option<f64>,
+    prev_close: Option<f64>,
 }
 
-/// Calculate ATR with default period (14)
+impl ATR {
+    pub fn new(period: usize) -> Self {
+        Self {
+            period,
+            true_ranges: Vec::new(),
+            current_atr: None,
+            prev_close: None,
+        }
+    }
+
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> f64 {
+        let true_range = if let Some(prev_close) = self.prev_close {
+            let tr1 = high - low;
+            let tr2 = (high - prev_close).abs();
+            let tr3 = (low - prev_close).abs();
+            tr1.max(tr2).max(tr3)
+        } else {
+            high - low
+        };
+
+        self.true_ranges.push(true_range);
+        if self.true_ranges.len() > self.period {
+            self.true_ranges.remove(0);
+        }
+
+        let atr = match self.current_atr {
+            Some(prev_atr) if self.true_ranges.len() == self.period => {
+                (prev_atr * (self.period - 1) as f64 + true_range) / self.period as f64
+            }
+            _ if self.true_ranges.len() == self.period => {
+                self.true_ranges.iter().sum::<f64>() / self.period as f64
+            }
+            _ => true_range,
+        };
+
+        self.current_atr = Some(atr);
+        self.prev_close = Some(close);
+        atr
+    }
+
+    pub fn current(&self) -> Option<f64> {
+        self.current_atr
+    }
+
+    pub fn get_volatility_regime(&self, atr: f64, lookback_avg: f64) -> VolatilityRegime {
+        if lookback_avg <= f64::EPSILON {
+            return VolatilityRegime::Normal;
+        }
+
+        let ratio = atr / lookback_avg;
+        if ratio > 1.5 {
+            VolatilityRegime::High
+        } else if ratio > 1.0 {
+            VolatilityRegime::Elevated
+        } else if ratio > 0.7 {
+            VolatilityRegime::Normal
+        } else {
+            VolatilityRegime::Low
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VolatilityRegime {
+    High,
+    Elevated,
+    Normal,
+    Low,
+}
+
+// ---------------------------------------------------------------------------
+// Legacy helpers - kept until the new engine fully lands.
+// ---------------------------------------------------------------------------
+
+pub fn calculate_atr(candles: &[Candle], period: u32) -> Option<AtrIndicator> {
+    if candles.len() < period as usize {
+        return None;
+    }
+
+    let mut atr = ATR::new(period as usize);
+    for window in candles {
+        atr.update(window.high, window.low, window.close);
+    }
+
+    atr.current().map(|value| AtrIndicator { value, period })
+}
+
 pub fn calculate_atr_default(candles: &[Candle]) -> Option<AtrIndicator> {
     calculate_atr(candles, 14)
 }
-
-

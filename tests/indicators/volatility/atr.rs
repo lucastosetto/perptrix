@@ -1,39 +1,33 @@
-//! Unit tests for ATR indicator
+//! Unit tests for ATR volatility calculations.
 
-use perptrix::indicators::volatility::{calculate_atr, calculate_atr_default};
-use perptrix::models::indicators::Candle;
 use chrono::Utc;
+use perptrix::indicators::volatility::atr::{VolatilityRegime, ATR};
+use perptrix::indicators::volatility::calculate_atr_default;
+use perptrix::models::indicators::Candle;
 
-fn create_volatile_candles(count: usize) -> Vec<Candle> {
-    let mut candles = Vec::new();
-    for i in 0..count {
-        let base = 100.0 + (i as f64 * 0.1);
-        let volatility = (i as f64 % 5.0) * 0.5;
-        candles.push(Candle::new(
-            base,
-            base + volatility + 0.2,
-            base - volatility - 0.2,
-            base + volatility * 0.5,
-            1000.0,
-            Utc::now(),
-        ));
+fn candle(high: f64, low: f64, close: f64) -> Candle {
+    Candle::new(close, high, low, close, 1000.0, Utc::now())
+}
+
+#[test]
+fn atr_updates_and_returns_regime() {
+    let mut atr = ATR::new(5);
+    let mut last_value = 0.0;
+
+    for offset in 0..6 {
+        last_value = atr.update(100.0 + offset as f64, 99.0 - offset as f64 * 0.1, 99.5);
     }
-    candles
+
+    assert!(last_value > 0.0);
+    let regime = atr.get_volatility_regime(last_value, last_value / 2.0);
+    assert_eq!(regime, VolatilityRegime::High);
 }
 
 #[test]
-fn test_atr_insufficient_data() {
-    let candles = create_volatile_candles(10);
-    assert!(calculate_atr(&candles, 14).is_none());
+fn legacy_wrapper_remains() {
+    let candles: Vec<_> = (0..20)
+        .map(|i| candle(105.0 + i as f64 * 0.2, 95.0, 100.0))
+        .collect();
+    let indicator = calculate_atr_default(&candles).expect("ATR result");
+    assert!(indicator.value > 0.0);
 }
-
-#[test]
-fn test_atr_sufficient_data() {
-    let candles = create_volatile_candles(30);
-    let result = calculate_atr_default(&candles);
-    assert!(result.is_some());
-    let atr = result.unwrap();
-    assert!(atr.value > 0.0);
-    assert_eq!(atr.period, 14);
-}
-

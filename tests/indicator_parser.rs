@@ -58,7 +58,7 @@ fn test_parse_macd_valid() {
 fn test_parse_macd_invalid_histogram() {
     let result = parse_macd(0.5, 0.3, Some(0.5), None);
     assert!(result.is_err());
-    
+
     let result = parse_macd(0.5, 0.3, Some(0.1), None);
     assert!(result.is_err());
 }
@@ -67,7 +67,7 @@ fn test_parse_macd_invalid_histogram() {
 fn test_parse_macd_invalid_period() {
     let result = parse_macd(0.5, 0.3, Some(0.2), Some((26, 12, 9)));
     assert!(result.is_err());
-    
+
     let result = parse_macd(0.5, 0.3, Some(0.2), Some((0, 26, 9)));
     assert!(result.is_err());
 }
@@ -76,7 +76,7 @@ fn test_parse_macd_invalid_period() {
 fn test_parse_macd_invalid_nan() {
     let result = parse_macd(f64::NAN, 0.3, Some(0.2), None);
     assert!(result.is_err());
-    
+
     let result = parse_macd(0.5, f64::INFINITY, Some(0.2), None);
     assert!(result.is_err());
 }
@@ -255,4 +255,3 @@ fn test_parse_volume_with_ma() {
     let result = parse_volume(1000.0, Some(-50.0), Some(20));
     assert!(result.is_err());
 }
-

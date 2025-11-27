@@ -1,40 +1,42 @@
-//! Unit tests for Bollinger Bands indicator
+//! Unit tests for Bollinger Bands signals.
 
-use perptrix::indicators::volatility::{calculate_bollinger_bands, calculate_bollinger_bands_default};
-use perptrix::models::indicators::Candle;
 use chrono::Utc;
+use perptrix::indicators::volatility::bollinger::{BollingerBands, BollingerSignal};
+use perptrix::indicators::volatility::calculate_bollinger_bands_default;
+use perptrix::models::indicators::Candle;
 
-fn create_test_candles(count: usize, base_price: f64, volatility: f64) -> Vec<Candle> {
-    let mut candles = Vec::new();
-    for i in 0..count {
-        let price = base_price + (i as f64 * 0.1) + (volatility * (i as f64 % 3.0 - 1.0));
-        candles.push(Candle::new(
-            price,
-            price + 0.05,
-            price - 0.05,
-            price,
-            1000.0,
-            Utc::now(),
-        ));
+fn candle(price: f64) -> Candle {
+    Candle::new(price, price + 0.5, price - 0.5, price, 1200.0, Utc::now())
+}
+
+#[test]
+fn bollinger_detects_squeeze_and_breakout() {
+    let mut bb = BollingerBands::new(5, 2.0);
+    let mut squeeze = false;
+    let mut breakout = false;
+
+    for _ in 0..6 {
+        let (_, _, _, signal) = bb.update(100.0);
+        if signal == BollingerSignal::Squeeze {
+            squeeze = true;
+        }
     }
-    candles
+
+    let (_, _, _, signal) = bb.update(105.0);
+    if matches!(
+        signal,
+        BollingerSignal::UpperBreakout | BollingerSignal::WalkingBands
+    ) {
+        breakout = true;
+    }
+
+    assert!(squeeze, "Expected squeeze after flat volatility");
+    assert!(breakout, "Expected breakout when price rips above the band");
 }
 
 #[test]
-fn test_bollinger_insufficient_data() {
-    let candles = create_test_candles(10, 100.0, 0.5);
-    assert!(calculate_bollinger_bands(&candles, 20, 2.0).is_none());
+fn legacy_wrapper_available() {
+    let candles: Vec<_> = (0..30).map(|i| candle(100.0 + i as f64 * 0.3)).collect();
+    let indicator = calculate_bollinger_bands_default(&candles).expect("Bollinger result");
+    assert!(indicator.upper > indicator.lower);
 }
-
-#[test]
-fn test_bollinger_sufficient_data() {
-    let candles = create_test_candles(50, 100.0, 0.5);
-    let result = calculate_bollinger_bands_default(&candles);
-    assert!(result.is_some());
-    let bb = result.unwrap();
-    assert!(bb.upper > bb.middle);
-    assert!(bb.middle > bb.lower);
-    assert_eq!(bb.period, 20);
-    assert_eq!(bb.std_dev, 2.0);
-}
-

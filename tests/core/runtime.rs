@@ -15,4 +15,3 @@ fn test_runtime_creation() {
     let _runtime = SignalRuntime::new(config);
     // Verify runtime was created successfully (no panic)
 }
-

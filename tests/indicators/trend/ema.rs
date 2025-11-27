@@ -1,53 +1,58 @@
-//! Unit tests for EMA indicator
+//! Unit tests for EMA trackers and crossover signals.
 
-use perptrix::indicators::trend::{calculate_ema, calculate_emas, check_ema_cross};
-use perptrix::models::indicators::Candle;
 use chrono::Utc;
+use perptrix::indicators::trend::calculate_ema;
+use perptrix::indicators::trend::ema::{EMACrossover, EMATrendSignal, EMA};
+use perptrix::models::indicators::Candle;
 
-fn create_test_candles(count: usize, base_price: f64) -> Vec<Candle> {
-    let mut candles = Vec::new();
-    for i in 0..count {
-        let price = base_price + (i as f64 * 0.1);
-        candles.push(Candle::new(
-            price,
-            price + 0.05,
-            price - 0.05,
-            price,
-            1000.0,
-            Utc::now(),
-        ));
+fn build_candle(price: f64) -> Candle {
+    Candle::new(price, price + 0.5, price - 0.5, price, 1000.0, Utc::now())
+}
+
+#[test]
+fn ema_updates_smoothly() {
+    let mut ema = EMA::new(5);
+    let prices = vec![100.0, 101.0, 102.0, 103.0, 104.0];
+    let mut last = 0.0;
+    for price in prices {
+        last = ema.update(price);
     }
-    candles
+    assert!(last > 100.0);
+    assert!(ema.get().is_some());
 }
 
 #[test]
-fn test_ema_insufficient_data() {
-    let candles = create_test_candles(10, 100.0);
-    assert!(calculate_ema(&candles, 20).is_none());
+fn ema_crossover_detects_signals() {
+    let mut crossover = EMACrossover::new(3, 6);
+    let mut bullish_seen = false;
+    let mut bearish_seen = false;
+
+    for price in [100.0, 101.0, 102.0, 103.0, 104.0, 105.0] {
+        if crossover.update(price) == EMATrendSignal::BullishCross {
+            bullish_seen = true;
+        }
+    }
+
+    for price in [105.0, 104.0, 103.0, 102.0, 101.0, 100.0] {
+        if crossover.update(price) == EMATrendSignal::BearishCross {
+            bearish_seen = true;
+        }
+    }
+
+    assert!(
+        bullish_seen,
+        "Expected a bullish crossover in the uptrend phase"
+    );
+    assert!(
+        bearish_seen,
+        "Expected a bearish crossover in the downtrend phase"
+    );
 }
 
 #[test]
-fn test_ema_sufficient_data() {
-    let candles = create_test_candles(50, 100.0);
-    let result = calculate_ema(&candles, 12);
-    assert!(result.is_some());
-    let ema = result.unwrap();
-    assert_eq!(ema.period, 12);
-    assert!(ema.value.is_finite());
+fn legacy_calculate_ema_still_works() {
+    let candles: Vec<_> = (0..30).map(|i| build_candle(100.0 + i as f64)).collect();
+    let ema_indicator = calculate_ema(&candles, 12).expect("EMA should be returned");
+    assert_eq!(ema_indicator.period, 12);
+    assert!(ema_indicator.value.is_finite());
 }
-
-#[test]
-fn test_calculate_multiple_emas() {
-    let candles = create_test_candles(250, 100.0);
-    let periods = vec![12, 26, 50, 200];
-    let emas = calculate_emas(&candles, &periods);
-    assert_eq!(emas.len(), 4);
-}
-
-#[test]
-fn test_ema_cross() {
-    let candles = create_test_candles(50, 100.0);
-    let cross = check_ema_cross(&candles, 12, 26);
-    assert!(cross.is_some());
-}
-

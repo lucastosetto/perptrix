@@ -1,8 +1,7 @@
-//! Trend indicators: EMA, ADX
+//! Trend indicators
 
 pub mod ema;
-pub mod adx;
+pub mod supertrend;
 
 pub use ema::*;
-pub use adx::*;
-
+pub use supertrend::*;

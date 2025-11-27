@@ -1,7 +1,7 @@
 //! Shared data models spanning the engine layers.
 
-pub mod signal;
 pub mod indicators;
+pub mod signal;
 
 // Re-export signal types
 pub use signal::{SignalDirection, SignalEvaluation, SignalOutput, SignalReason};
