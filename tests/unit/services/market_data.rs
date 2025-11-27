@@ -10,3 +10,5 @@ fn test_placeholder_provider() {
     assert!(provider.subscribe("BTC").is_ok());
 }
 
+
+

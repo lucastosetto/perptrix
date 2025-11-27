@@ -42,3 +42,5 @@ fn test_supertrend_sufficient_data() {
     assert_eq!(st.multiplier, 3.0);
 }
 
+
+

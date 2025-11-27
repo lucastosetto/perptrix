@@ -11,17 +11,40 @@ Kryptex is designed to:
 4. Execute Long/Short orders in perpetual futures
 5. Maintain modularity to allow changing exchanges without altering core logic
 
-## Current Status: Phase 2 & 3 Complete ✅
+## Current Status
 
-The signal engine has been fully implemented according to the [Kryptex RFC](https://github.com/lucastosetto/kryptex/wiki/1.-RFC-%E2%80%90-Kryptex:-Crypto-Perps-Signal-&-Execution-Engine):
+Kryptex now ships the full Phase 2 signal engine defined in the [RFC](https://github.com/lucastosetto/kryptex/wiki/1.-RFC-%E2%80%90-Kryptex:-Crypto-Perps-Signal-&-Execution-Engine), plus scaffolding for the Phase 3 cloud runtime. Indicator computation, aggregation, decisioning, and SL/TP logic are implemented, while runtime integration (live data, HTTP signal APIs, metrics, exchange execution) is still pending.
 
-- ✅ Complete indicator calculation engine (all categories implemented)
-- ✅ Category-based aggregation system with RFC-defined weights
-- ✅ Signal decision engine with Long/Short/Neutral thresholds
-- ✅ Cloud runtime with HTTP health check endpoint
-- ✅ Periodic task runner for continuous signal evaluation
-- ✅ Comprehensive test suite (133 tests, all passing)
-- 🔜 Exchange adapters and execution engine (Phase 3+)
+### Implemented
+
+- Multi-category indicator stack: MACD, RSI, 12/26 + 50/200 EMAs, ADX, Bollinger Bands, ATR, SuperTrend, Support/Resistance (`src/indicators/**`).
+- Normalization, category-based weighting, aggregation, and explainability (`src/signals/scoring.rs`, `src/signals/aggregation.rs`, `src/signals/categories.rs`).
+- Direction thresholds and ATR-driven SL/TP logic (`src/signals/decision.rs`).
+- SQLite persistence layer ready for storing evaluated signals (`src/db/sqlite.rs`).
+- Unit + integration tests covering indicators and multiple market regimes (`tests/**`).
+
+### Missing / In Progress
+
+- Live market data ingestion: `SignalRuntime` currently uses `PlaceholderMarketDataProvider`, so periodic jobs cannot emit real signals.
+- HTTP API for retrieving the latest signal/indicator breakdown (server currently exposes only `/health`).
+- Structured logging/metrics suitable for cloud monitoring (only `println!` statements exist today).
+- Exchange adapters, funding-rate ingestion, execution engine, dashboard/backtester (future RFC phases).
+
+## RFC Alignment
+
+| RFC Item | Status | Notes |
+| --- | --- | --- |
+| Indicator categories (Momentum, Trend, Volatility, Market Structure) | ✅ | Implemented in `src/indicators/` with dedicated modules per category. |
+| Normalization + helper utilities | ✅ | `src/signals/scoring.rs` provides shared normalization + confidence helpers. |
+| Category weighting + aggregation | ✅ | `Aggregator` + `CategoryWeights` mirror the RFC weights. |
+| Direction thresholds + SL/TP logic | ✅ | `signals::decision` matches the >60% / <40% thresholds and ATR × (1.2/2.0) rules. |
+| Explainability (per-indicator contributions) | ✅ | `Aggregator::generate_reasons` returns category + indicator reasons. |
+| Persistence | ✅ | `SignalDatabase` (SQLite) schema + helpers are ready but not wired into runtime yet. |
+| Cloud runtime | ⚠️ Partial | `SignalRuntime` + Axum server exist, but server only has `/health` and runtime has no real data source. |
+| HTTP signal endpoint | ❌ | Needs endpoint(s) to fetch latest signal, indicator set, and stored history. |
+| Market data ingestion (Hyperliquid adapter, funding data) | ❌ | Only `PlaceholderMarketDataProvider` is present; no exchange adapters yet. |
+| Logging + metrics | ❌ | No structured logging, telemetry, or Prometheus-style metrics are implemented. |
+| Execution engine + downstream phases | ❌ | Order/execution/risk management modules have not been started. |
 
 ## Architecture
 
@@ -229,17 +252,12 @@ Run all tests:
 cargo test
 ```
 
-The test suite includes:
-- **Unit tests**: Each indicator and module has comprehensive unit tests (66 tests)
-- **Integration tests**: Market scenario tests (uptrends, downtrends, ranging, volatility, reversals)
-- **Total**: 133 tests, all passing ✅
+What the suite currently covers:
+- **Indicators & helpers**: Unit tests for MACD, RSI, EMA, ADX, Bollinger Bands, ATR, SuperTrend, Support/Resistance, math helpers, parsers, and validation logic (see `tests/indicators/**` and `tests/unit/**`).
+- **Signal scenarios**: Integration tests exercising strong up/down trends, ranging markets, high volatility, and major reversals using deterministic synthetic candles (`tests/signal_scenarios.rs`).
+- **Signal pipeline**: Aggregation, category weights, decision thresholds, and SL/TP calculations (`tests/signals/**`).
 
-Test coverage includes:
-- Indicator calculations with fixed datasets
-- Score normalization and aggregation logic
-- Signal decision thresholds
-- Category weight verification
-- Edge cases (insufficient data, NaN handling)
+Add exchange-provided fixture datasets + performance benchmarks before promoting to 24/7 cloud execution.
 
 ### Persistence
 

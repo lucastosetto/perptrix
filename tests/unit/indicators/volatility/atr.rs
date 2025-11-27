@@ -37,3 +37,5 @@ fn test_atr_sufficient_data() {
     assert_eq!(atr.period, 14);
 }
 
+
+

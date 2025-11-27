@@ -146,3 +146,5 @@ fn test_major_reversal() {
     assert!(matches!(s.direction, kryptex::models::signal::SignalDirection::Long | kryptex::models::signal::SignalDirection::Short | kryptex::models::signal::SignalDirection::Neutral));
 }
 
+
+

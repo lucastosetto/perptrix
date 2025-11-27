@@ -37,3 +37,5 @@ fn test_macd_sufficient_data() {
     assert!(macd.histogram.is_finite());
 }
 
+
+

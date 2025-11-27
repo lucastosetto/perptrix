@@ -38,3 +38,5 @@ fn test_bollinger_sufficient_data() {
     assert_eq!(bb.std_dev, 2.0);
 }
 
+
+

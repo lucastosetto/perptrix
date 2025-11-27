@@ -34,3 +34,5 @@ fn test_calculate_global_score() {
     assert!(global > 0.0);
 }
 
+
+

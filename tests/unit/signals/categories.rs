@@ -16,3 +16,5 @@ fn test_category_weights() {
     assert_eq!(CategoryWeights::get(IndicatorCategory::MarketStructure), 0.20);
 }
 
+
+
