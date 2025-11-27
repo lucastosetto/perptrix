@@ -70,8 +70,9 @@ impl SignalRuntime {
     async fn evaluate_signal(
         &self,
         symbol: &str,
-    ) -> Result<Option<crate::models::signal::SignalOutput>, Box<dyn std::error::Error>> {
-        let candles = self.data_provider.get_candles(symbol, 250)?;
+    ) -> Result<Option<crate::models::signal::SignalOutput>, Box<dyn std::error::Error + Send + Sync>> {
+        let candles = self.data_provider.get_candles(symbol, 250).await
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Market data error: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
 
         if candles.is_empty() {
             return Ok(None);

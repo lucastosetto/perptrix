@@ -5,8 +5,11 @@
 
 use perptrix::core::http::start_server;
 use perptrix::core::runtime::{RuntimeConfig, SignalRuntime};
+use perptrix::services::hyperliquid::HyperliquidMarketDataProvider;
+use perptrix::services::market_data::MarketDataProvider;
 use std::env;
 use tokio::signal;
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .flatten();
 
+    let env = perptrix::config::get_environment();
     println!("Starting Perptrix Signal Engine Server");
+    println!("  Environment: {}", env);
     println!("  HTTP Server: http://0.0.0.0:{}", port);
     
     if eval_interval > 0 {
@@ -48,9 +53,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let runtime_config = RuntimeConfig {
             evaluation_interval_seconds: eval_interval,
-            symbols,
+            symbols: symbols.clone(),
         };
-        let runtime = SignalRuntime::new(runtime_config);
+        
+        // Initialize Hyperliquid provider
+        println!("  Initializing Hyperliquid WebSocket provider...");
+        let provider = HyperliquidMarketDataProvider::new();
+        
+        // Wait a moment for connection to establish
+        println!("  Waiting for WebSocket connection...");
+        sleep(Duration::from_secs(2)).await;
+        
+        // Subscribe to symbols with retry
+        for symbol in &symbols {
+            let mut retries = 3;
+            while retries > 0 {
+                match provider.subscribe(symbol).await {
+                    Ok(()) => {
+                        println!("  ✓ Subscribed to {}", symbol);
+                        break;
+                    }
+                    Err(e) => {
+                        retries -= 1;
+                        if retries > 0 {
+                            eprintln!("  Warning: Failed to subscribe to {}: {}. Retrying...", symbol, e);
+                            sleep(Duration::from_secs(1)).await;
+                        } else {
+                            eprintln!("  ✗ Error: Failed to subscribe to {} after retries: {}", symbol, e);
+                        }
+                    }
+                }
+            }
+        }
+        
+        let runtime = SignalRuntime::with_provider(runtime_config, provider);
 
         let runtime_handle = tokio::spawn(async move {
             if let Err(e) = runtime.run().await {

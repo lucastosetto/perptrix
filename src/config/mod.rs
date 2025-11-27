@@ -110,3 +110,22 @@ impl Config {
         Ok(())
     }
 }
+
+/// Get the Hyperliquid WebSocket URL based on environment
+pub fn get_hyperliquid_ws_url() -> String {
+    let env = std::env::var("PERPTRIX_ENV")
+        .unwrap_or_else(|_| "production".to_string())
+        .to_lowercase();
+
+    match env.as_str() {
+        "sandbox" | "testnet" => "wss://api.hyperliquid-testnet.xyz/ws".to_string(),
+        _ => "wss://api.hyperliquid.xyz/ws".to_string(),
+    }
+}
+
+/// Get the current environment (sandbox or production)
+pub fn get_environment() -> String {
+    std::env::var("PERPTRIX_ENV")
+        .unwrap_or_else(|_| "production".to_string())
+        .to_lowercase()
+}

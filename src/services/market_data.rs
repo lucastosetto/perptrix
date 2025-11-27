@@ -2,36 +2,38 @@
 
 use crate::models::indicators::Candle;
 
-pub trait MarketDataProvider {
+#[async_trait::async_trait]
+pub trait MarketDataProvider: Send + Sync {
     /// Get historical candles for a symbol
-    fn get_candles(
+    async fn get_candles(
         &self,
         symbol: &str,
         limit: usize,
-    ) -> Result<Vec<Candle>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<Candle>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get the latest price for a symbol
-    fn get_latest_price(&self, symbol: &str) -> Result<f64, Box<dyn std::error::Error>>;
+    async fn get_latest_price(&self, symbol: &str) -> Result<f64, Box<dyn std::error::Error + Send + Sync>>;
 
-    fn subscribe(&self, symbol: &str) -> Result<(), Box<dyn std::error::Error>>;
+    async fn subscribe(&self, symbol: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 pub struct PlaceholderMarketDataProvider;
 
+#[async_trait::async_trait]
 impl MarketDataProvider for PlaceholderMarketDataProvider {
-    fn get_candles(
+    async fn get_candles(
         &self,
         _symbol: &str,
         _limit: usize,
-    ) -> Result<Vec<Candle>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Candle>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Vec::new())
     }
 
-    fn get_latest_price(&self, _symbol: &str) -> Result<f64, Box<dyn std::error::Error>> {
+    async fn get_latest_price(&self, _symbol: &str) -> Result<f64, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0.0)
     }
 
-    fn subscribe(&self, _symbol: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn subscribe(&self, _symbol: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }
