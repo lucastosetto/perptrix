@@ -241,23 +241,43 @@ impl SignalAggregator {
 
     fn calculate_confidence(&self, trend: i32, momentum: i32, volume: i32, perp: i32) -> f64 {
         let scores = vec![trend, momentum, volume, perp];
-        let positive = scores.iter().filter(|&&s| s > 0).count();
-        let negative = scores.iter().filter(|&&s| s < 0).count();
-        let neutral = scores.iter().filter(|&&s| s == 0).count();
-        let total = positive + negative + neutral;
-        if total == 0 {
+        
+        // Calculate alignment based on magnitude, not just count
+        // Maximum possible scores: trend=±3, momentum=±3, volume=±2, perp=±2
+        let max_possible_scores = vec![3, 3, 2, 2];
+        
+        // Calculate total positive and negative magnitudes
+        let mut positive_magnitude = 0.0;
+        let mut negative_magnitude = 0.0;
+        let mut total_possible = 0.0;
+        
+        for (score, &max_score) in scores.iter().zip(max_possible_scores.iter()) {
+            total_possible += max_score as f64;
+            if *score > 0 {
+                positive_magnitude += score.abs() as f64;
+            } else if *score < 0 {
+                negative_magnitude += score.abs() as f64;
+            }
+        }
+        
+        if total_possible == 0.0 {
             return 0.0;
         }
-
-        let alignment = positive.max(negative) as f64;
-        let mut base_confidence = alignment / total as f64;
+        
+        // Base confidence is the proportion of maximum possible alignment
+        let alignment = positive_magnitude.max(negative_magnitude);
+        let mut base_confidence = alignment / total_possible;
+        
+        // Apply trend-momentum alignment bonus/penalty
         let trend_momentum_aligned = (trend > 0 && momentum > 0) || (trend < 0 && momentum < 0);
         if trend_momentum_aligned {
             base_confidence = (base_confidence * 1.2).min(1.0);
         } else {
             base_confidence *= 0.8;
         }
-        base_confidence
+        
+        // Ensure confidence is in valid range [0.0, 1.0]
+        base_confidence.max(0.0).min(1.0)
     }
 
     fn assess_risk(&self, signals: &IndicatorSignals, total_score: i32) -> RiskLevel {
