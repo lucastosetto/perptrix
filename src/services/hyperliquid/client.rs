@@ -57,7 +57,7 @@ impl HyperliquidClient {
                         info!(delay = ?current_delay, "Hyperliquid WebSocket reconnected (delay was {:?})", current_delay);
                     }
                     current_delay = self.reconnect_delay;
-                    
+
                     // Spawn ping task to keep connection alive
                     let sender_clone = self.sender.clone();
                     tokio::spawn(async move {
@@ -73,7 +73,7 @@ impl HyperliquidClient {
                             }
                         }
                     });
-                    
+
                     // Wait for disconnection
                     let _ = self.run_connection().await;
                 }
@@ -81,10 +81,7 @@ impl HyperliquidClient {
                     let error_msg = format!("{}", e);
                     warn!(error = %e, delay = ?current_delay, "Failed to connect: {}. Retrying in {:?}...", error_msg, current_delay);
                     sleep(current_delay).await;
-                    current_delay = std::cmp::min(
-                        current_delay * 2,
-                        self.max_reconnect_delay,
-                    );
+                    current_delay = std::cmp::min(current_delay * 2, self.max_reconnect_delay);
                 }
             }
         }
@@ -146,7 +143,11 @@ impl HyperliquidClient {
                         // Pong received, connection is alive
                     }
                     Ok(Message::Binary(data)) => {
-                        debug!(bytes = data.len(), "WebSocket received binary message ({} bytes)", data.len());
+                        debug!(
+                            bytes = data.len(),
+                            "WebSocket received binary message ({} bytes)",
+                            data.len()
+                        );
                     }
                     Ok(Message::Frame(_)) => {
                         // Raw frame, should be handled by tungstenite
@@ -168,22 +169,18 @@ impl HyperliquidClient {
         // This method is called after connection is established
         // The connection will be maintained by the spawned tasks
         // Wait for disconnection event
-        loop {
-            if let Some(event) = self.receive().await {
-                match event {
-                    ClientEvent::Disconnected | ClientEvent::Error(_) => {
-                        break;
-                    }
-                    _ => {}
-                }
-            } else {
+        while let Some(event) = self.receive().await {
+            if matches!(event, ClientEvent::Disconnected | ClientEvent::Error(_)) {
                 break;
             }
         }
         Ok(())
     }
 
-    pub async fn send(&self, message: Message) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send(
+        &self,
+        message: Message,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(sender) = self.sender.read().await.as_ref() {
             sender.send(message)?;
             Ok(())
@@ -205,7 +202,10 @@ impl HyperliquidClient {
         }
     }
 
-    pub async fn send_text(&self, text: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_text(
+        &self,
+        text: String,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.send(Message::Text(text)).await
     }
 
@@ -230,4 +230,3 @@ impl Default for HyperliquidClient {
         Self::new()
     }
 }
-

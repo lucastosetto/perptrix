@@ -138,8 +138,7 @@ pub fn get_questdb_url() -> String {
 
 /// Get the Redis connection string
 pub fn get_redis_url() -> String {
-    std::env::var("REDIS_URL")
-        .unwrap_or_else(|_| "redis://localhost:6379".to_string())
+    std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
 }
 
 /// Get the Hyperliquid REST API URL based on environment

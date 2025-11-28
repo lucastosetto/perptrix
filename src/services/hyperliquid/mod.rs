@@ -9,4 +9,3 @@ pub mod subscriptions;
 pub use client::HyperliquidClient;
 pub use provider::HyperliquidMarketDataProvider;
 pub use rest::HyperliquidRestClient;
-

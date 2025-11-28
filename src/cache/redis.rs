@@ -23,15 +23,12 @@ impl RedisCache {
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        let connection = client
-            .get_connection_manager()
-            .await
-            .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    format!("Failed to connect to Redis: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+        let connection = client.get_connection_manager().await.map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                format!("Failed to connect to Redis: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         Ok(Self {
             client: Arc::new(RwLock::new(Some(connection))),
@@ -55,22 +52,18 @@ impl RedisCache {
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
-            c.set::<_, _, ()>(&key, &json)
-                .await
-                .map_err(|e| {
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to set cache: {}", e),
-                    )) as Box<dyn std::error::Error + Send + Sync>
-                })?;
+            c.set::<_, _, ()>(&key, &json).await.map_err(|e| {
+                Box::new(std::io::Error::other(format!("Failed to set cache: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
             c.expire::<_, ()>(&key, CANDLE_CACHE_TTL)
                 .await
                 .map_err(|e| {
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to set cache TTL: {}", e),
-                    )) as Box<dyn std::error::Error + Send + Sync>
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to set cache TTL: {}",
+                        e
+                    ))) as Box<dyn std::error::Error + Send + Sync>
                 })?;
         }
 
@@ -87,10 +80,8 @@ impl RedisCache {
         if let Some(ref mut c) = *conn {
             let key = format!("{}:{}:{}", CACHE_KEY_PREFIX, symbol, interval);
             let json: Option<String> = c.get(&key).await.map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to get cache: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!("Failed to get cache: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             if let Some(json_str) = json {
@@ -116,14 +107,12 @@ impl RedisCache {
         let mut conn = self.client.write().await;
         if let Some(ref mut c) = *conn {
             let key = format!("{}:{}:{}", CACHE_KEY_PREFIX, symbol, interval);
-            c.del::<_, ()>(&key)
-                .await
-                .map_err(|e| {
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to delete cache: {}", e),
-                    )) as Box<dyn std::error::Error + Send + Sync>
-                })?;
+            c.del::<_, ()>(&key).await.map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to delete cache: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
         }
 
         Ok(())
@@ -135,4 +124,3 @@ impl RedisCache {
         conn.is_some()
     }
 }
-

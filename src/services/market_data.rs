@@ -12,9 +12,13 @@ pub trait MarketDataProvider: Send + Sync {
     ) -> Result<Vec<Candle>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get the latest price for a symbol
-    async fn get_latest_price(&self, symbol: &str) -> Result<f64, Box<dyn std::error::Error + Send + Sync>>;
+    async fn get_latest_price(
+        &self,
+        symbol: &str,
+    ) -> Result<f64, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn subscribe(&self, symbol: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn subscribe(&self, symbol: &str)
+        -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 pub struct PlaceholderMarketDataProvider;
@@ -29,11 +33,17 @@ impl MarketDataProvider for PlaceholderMarketDataProvider {
         Ok(Vec::new())
     }
 
-    async fn get_latest_price(&self, _symbol: &str) -> Result<f64, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_latest_price(
+        &self,
+        _symbol: &str,
+    ) -> Result<f64, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0.0)
     }
 
-    async fn subscribe(&self, _symbol: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn subscribe(
+        &self,
+        _symbol: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 }

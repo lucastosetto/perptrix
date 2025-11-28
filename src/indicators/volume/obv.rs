@@ -69,3 +69,9 @@ impl OBV {
         self.obv_ema
     }
 }
+
+impl Default for OBV {
+    fn default() -> Self {
+        Self::new()
+    }
+}

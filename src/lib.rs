@@ -7,6 +7,7 @@ pub mod engine;
 pub mod evaluation;
 pub mod indicators;
 pub mod logging;
+pub mod metrics;
 pub mod models;
 pub mod services;
 pub mod signals;

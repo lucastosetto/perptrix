@@ -15,24 +15,12 @@ fn test_category_weights_sum_to_one() {
 #[test]
 fn test_category_weights() {
     let registry = IndicatorRegistry::new();
-    assert_eq!(
-        registry.category_weight(IndicatorCategory::Momentum),
-        0.25
-    );
-    assert_eq!(
-        registry.category_weight(IndicatorCategory::Trend),
-        0.30
-    );
+    assert_eq!(registry.category_weight(IndicatorCategory::Momentum), 0.25);
+    assert_eq!(registry.category_weight(IndicatorCategory::Trend), 0.30);
     assert_eq!(
         registry.category_weight(IndicatorCategory::Volatility),
         0.15
     );
-    assert_eq!(
-        registry.category_weight(IndicatorCategory::Volume),
-        0.15
-    );
-    assert_eq!(
-        registry.category_weight(IndicatorCategory::Perp),
-        0.15
-    );
+    assert_eq!(registry.category_weight(IndicatorCategory::Volume), 0.15);
+    assert_eq!(registry.category_weight(IndicatorCategory::Perp), 0.15);
 }

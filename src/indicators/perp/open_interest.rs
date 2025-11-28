@@ -73,3 +73,9 @@ impl OpenInterest {
         self.oi_ema
     }
 }
+
+impl Default for OpenInterest {
+    fn default() -> Self {
+        Self::new()
+    }
+}

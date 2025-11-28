@@ -12,7 +12,7 @@ const FUNDING_RATE_MAX: f64 = 1.0;
 const MACD_HISTOGRAM_TOLERANCE: f64 = 0.0001;
 
 pub fn validate_rsi(value: f64) -> Result<(), IndicatorError> {
-    if value < RSI_MIN || value > RSI_MAX {
+    if !(RSI_MIN..=RSI_MAX).contains(&value) {
         return Err(IndicatorError::OutOfRange {
             field: "rsi".to_string(),
             value,
@@ -30,7 +30,7 @@ pub fn validate_rsi(value: f64) -> Result<(), IndicatorError> {
 }
 
 pub fn validate_period(period: u32) -> Result<(), IndicatorError> {
-    if period < MIN_PERIOD || period > MAX_PERIOD {
+    if !(MIN_PERIOD..=MAX_PERIOD).contains(&period) {
         return Err(IndicatorError::InvalidPeriod {
             field: "period".to_string(),
             value: period,
@@ -76,7 +76,7 @@ pub fn validate_volume(volume: f64) -> Result<(), IndicatorError> {
 }
 
 pub fn validate_funding_rate(funding_rate: f64) -> Result<(), IndicatorError> {
-    if funding_rate < FUNDING_RATE_MIN || funding_rate > FUNDING_RATE_MAX {
+    if !(FUNDING_RATE_MIN..=FUNDING_RATE_MAX).contains(&funding_rate) {
         return Err(IndicatorError::OutOfRange {
             field: "funding_rate".to_string(),
             value: funding_rate,

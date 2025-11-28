@@ -143,32 +143,26 @@ impl SignalEngine {
             weight: 0.5,
         });
 
-        // Debug: Log score even if neutral
-        // The actual decision uses integer score thresholds: >= 3 for Long, <= -3 for Short
-        // Normalize to 0-1 range for display (assuming max possible score is around ±12)
-        let max_possible_score = 12.0;
-        let normalized_score = (trading_signal.score_breakdown.total_score as f64 / max_possible_score + 1.0) / 2.0;
-        let normalized_score = normalized_score.max(0.0).min(1.0);
-        
+        // Debug: Log score breakdown for neutral signals
         if direction == crate::models::signal::SignalDirection::Neutral {
+            let confidence_pct = (trading_signal.confidence * 10000.0).round() / 100.0;
             tracing::debug!(
                 symbol = %symbol,
                 total_score = trading_signal.score_breakdown.total_score,
-                normalized_score = normalized_score,
+                confidence = confidence_pct,
                 trend_score = trading_signal.score_breakdown.trend_score,
                 momentum_score = trading_signal.score_breakdown.momentum_score,
                 volatility_score = trading_signal.score_breakdown.volatility_score,
                 volume_score = trading_signal.score_breakdown.volume_score,
                 perp_score = trading_signal.score_breakdown.perp_score,
-                "Neutral signal - Integer Score: {} (needs >= 3 for Long, <= -3 for Short). Normalized: {:.2}. Breakdown: T={}, M={}, V={}, Vol={}, P={}, Total={}",
+                "Neutral signal - Total score: {} (needs >= 3 for Long, <= -3 for Short), Confidence: {:.2}%. Breakdown: Trend={}, Momentum={}, Volatility={}, Volume={}, Perp={}",
                 trading_signal.score_breakdown.total_score,
-                normalized_score,
+                confidence_pct,
                 trading_signal.score_breakdown.trend_score,
                 trading_signal.score_breakdown.momentum_score,
                 trading_signal.score_breakdown.volatility_score,
                 trading_signal.score_breakdown.volume_score,
-                trading_signal.score_breakdown.perp_score,
-                trading_signal.score_breakdown.total_score
+                trading_signal.score_breakdown.perp_score
             );
         }
 

@@ -31,7 +31,7 @@ pub fn parse_macd(
     histogram_val: Option<f64>,
     period: Option<(u32, u32, u32)>,
 ) -> Result<MacdIndicator, IndicatorError> {
-    let histogram = histogram_val.unwrap_or_else(|| macd_val - signal_val);
+    let histogram = histogram_val.unwrap_or(macd_val - signal_val);
     let macd = MacdIndicator {
         macd: macd_val,
         signal: signal_val,

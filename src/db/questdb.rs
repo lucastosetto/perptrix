@@ -15,14 +15,15 @@ pub struct QuestDatabase {
 impl QuestDatabase {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let questdb_url = config::get_questdb_url();
-        let (client, connection) = tokio_postgres::connect(&questdb_url, NoTls)
-            .await
-            .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    format!("Failed to connect to QuestDB: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+        let (client, connection) =
+            tokio_postgres::connect(&questdb_url, NoTls)
+                .await
+                .map_err(|e| {
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        format!("Failed to connect to QuestDB: {}", e),
+                    )) as Box<dyn std::error::Error + Send + Sync>
+                })?;
 
         // Spawn connection task
         tokio::spawn(async move {
@@ -63,10 +64,10 @@ impl QuestDatabase {
             )
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create candles table: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Failed to create candles table: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             // Create signals table
@@ -86,10 +87,10 @@ impl QuestDatabase {
             )
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create signals table: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Failed to create signals table: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
 
@@ -107,7 +108,7 @@ impl QuestDatabase {
         if let Some(ref c) = *client {
             // QuestDB expects timestamps - use NaiveDateTime for compatibility
             let timestamp_naive = candle.timestamp.naive_utc();
-            
+
             c.execute(
                 "INSERT INTO candles (timestamp, symbol, interval, open, high, low, close, volume, open_interest, funding_rate)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -126,10 +127,8 @@ impl QuestDatabase {
             )
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to store candle: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!("Failed to store candle: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
 
@@ -180,10 +179,10 @@ impl QuestDatabase {
             };
 
             let rows = c.query(&query, &[&symbol, &interval]).await.map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to query candles: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Failed to query candles: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let mut candles = Vec::new();
@@ -242,7 +241,7 @@ impl QuestDatabase {
             let id = signal.timestamp.timestamp_millis();
             // Convert DateTime<Utc> to NaiveDateTime for QuestDB compatibility
             let timestamp_naive = signal.timestamp.naive_utc();
-            
+
             c.execute(
                 "INSERT INTO signals (timestamp, id, symbol, direction, confidence, sl_pct, tp_pct, price, reasons_json)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
@@ -260,10 +259,8 @@ impl QuestDatabase {
             )
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to store signal: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!("Failed to store signal: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
             })?;
         }
 
@@ -278,33 +275,30 @@ impl QuestDatabase {
     ) -> Result<Vec<SignalOutput>, Box<dyn std::error::Error + Send + Sync>> {
         let client = self.client.read().await;
         if let Some(ref c) = *client {
-            let query = if let Some(_sym) = symbol {
-                if let Some(limit) = limit {
-                    format!(
-                        "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
-                         FROM signals
-                         WHERE symbol = $1
-                         ORDER BY timestamp DESC
-                         LIMIT {}",
-                        limit
-                    )
-                } else {
+            let query = match (symbol, limit) {
+                (Some(_), Some(limit)) => format!(
+                    "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
+                     FROM signals
+                     WHERE symbol = $1
+                     ORDER BY timestamp DESC
+                     LIMIT {}",
+                    limit
+                ),
+                (Some(_), None) => {
                     "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
                      FROM signals
                      WHERE symbol = $1
                      ORDER BY timestamp DESC"
                         .to_string()
                 }
-            } else {
-                if let Some(limit) = limit {
-                    format!(
-                        "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
-                         FROM signals
-                         ORDER BY timestamp DESC
-                         LIMIT {}",
-                        limit
-                    )
-                } else {
+                (None, Some(limit)) => format!(
+                    "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
+                     FROM signals
+                     ORDER BY timestamp DESC
+                     LIMIT {}",
+                    limit
+                ),
+                (None, None) => {
                     "SELECT symbol, direction, confidence, sl_pct, tp_pct, price, timestamp, reasons_json
                      FROM signals
                      ORDER BY timestamp DESC"
@@ -318,10 +312,10 @@ impl QuestDatabase {
                 c.query(&query, &[]).await
             }
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to query signals: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Failed to query signals: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let mut signals = Vec::new();
@@ -373,4 +367,3 @@ impl QuestDatabase {
         client.is_some()
     }
 }
-

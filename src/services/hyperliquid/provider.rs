@@ -32,7 +32,12 @@ pub struct HyperliquidMarketDataProvider {
 
 impl HyperliquidMarketDataProvider {
     pub fn new() -> Self {
-        Self::with_intervals(vec!["1m".to_string(), "5m".to_string(), "15m".to_string(), "1h".to_string()])
+        Self::with_intervals(vec![
+            "1m".to_string(),
+            "5m".to_string(),
+            "15m".to_string(),
+            "1h".to_string(),
+        ])
     }
 
     pub fn with_intervals(candle_intervals: Vec<String>) -> Self {
@@ -76,37 +81,53 @@ impl HyperliquidMarketDataProvider {
         }
     }
 
-    async fn subscribe_candle(&self, coin: &str, interval: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn subscribe_candle(
+        &self,
+        coin: &str,
+        interval: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Fetch historical candles (even if database is unavailable, we can use Redis and in-memory)
         let historical_count = config::get_historical_candle_count();
         debug!(coin = %coin, interval = %interval, count = historical_count, "Fetching {} historical candles for {}/{}", historical_count, coin, interval);
-        
-        match self.rest_client.fetch_historical_candles(coin, interval, historical_count).await {
+
+        match self
+            .rest_client
+            .fetch_historical_candles(coin, interval, historical_count)
+            .await
+        {
             Ok(historical_candles) => {
                 debug!(coin = %coin, interval = %interval, count = historical_candles.len(), "Fetched {} historical candles for {}/{}", historical_candles.len(), coin, interval);
-                
+
                 // Store in QuestDB if available
                 if let Some(ref db) = self.database {
-                    if let Err(e) = db.store_candles_batch(coin, interval, &historical_candles).await {
+                    if let Err(e) = db
+                        .store_candles_batch(coin, interval, &historical_candles)
+                        .await
+                    {
                         warn!(coin = %coin, interval = %interval, error = %e, "Failed to store historical candles in QuestDB");
                     } else {
                         debug!(coin = %coin, interval = %interval, count = historical_candles.len(), "Stored {} historical candles in QuestDB", historical_candles.len());
                     }
                 }
-                
+
                 // Cache in Redis if available
                 if let Some(ref cache) = self.cache {
-                    if let Err(e) = cache.cache_candles(coin, interval, &historical_candles).await {
+                    if let Err(e) = cache
+                        .cache_candles(coin, interval, &historical_candles)
+                        .await
+                    {
                         warn!(coin = %coin, interval = %interval, error = %e, "Failed to cache historical candles in Redis");
                     } else {
                         debug!(coin = %coin, interval = %interval, count = historical_candles.len(), "Cached {} historical candles in Redis", historical_candles.len());
                     }
                 }
-                
+
                 // Always update in-memory buffer
                 let symbol_key = format!("{}_{}", coin, interval);
                 let mut candles_map = self.candles.write().await;
-                let candles = candles_map.entry(symbol_key.clone()).or_insert_with(VecDeque::new);
+                let candles = candles_map
+                    .entry(symbol_key.clone())
+                    .or_insert_with(VecDeque::new);
                 for candle in historical_candles {
                     candles.push_back(candle);
                 }
@@ -120,7 +141,7 @@ impl HyperliquidMarketDataProvider {
                 warn!(coin = %coin, interval = %interval, error = %e, "Failed to fetch historical candles for {}/{}", coin, interval);
             }
         }
-        
+
         // Add to pending subscriptions
         {
             let mut pending = self.pending_subscriptions.write().await;
@@ -138,9 +159,13 @@ impl HyperliquidMarketDataProvider {
         }
     }
 
-    async fn subscribe_candle_internal(&self, coin: &str, interval: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn subscribe_candle_internal(
+        &self,
+        coin: &str,
+        interval: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let key = SubscriptionKey::candle(coin, interval);
-        
+
         if self.subscriptions.contains(&key).await {
             return Ok(()); // Already subscribed
         }
@@ -148,21 +173,31 @@ impl HyperliquidMarketDataProvider {
         let subscription = Subscription::candle(coin, interval);
         let request = RequestMessage::Subscribe { subscription };
 
-        let json = serde_json::to_string(&request)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let json = serde_json::to_string(&request).map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
         debug!(subscription = %json, "Sending subscription");
-        
-        self.client.send_text(json).await
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("WebSocket send error: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
+
+        self.client.send_text(json).await.map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "WebSocket send error: {}",
+                e
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         self.subscriptions.add(key).await;
         Ok(())
     }
 
-
     fn get_primary_interval(&self) -> &str {
-        self.candle_intervals.first().map(|s| s.as_str()).unwrap_or("1m")
+        self.candle_intervals
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("1m")
     }
 
     pub fn client(&self) -> &Arc<HyperliquidClient> {
@@ -197,7 +232,7 @@ struct TaskProvider {
 impl TaskProvider {
     async fn handle_messages(&self) {
         loop {
-            if let Some(event) = self.client.receive().await {
+            while let Some(event) = self.client.receive().await {
                 match event {
                     ClientEvent::Message(text) => {
                         if let Err(e) = self.process_message(&text).await {
@@ -210,7 +245,11 @@ impl TaskProvider {
                         sleep(Duration::from_millis(500)).await;
                         // Resubscribe to all pending subscriptions
                         let pending = self.pending_subscriptions.read().await.clone();
-                        debug!(count = pending.len(), "Resubscribing to {} pending subscriptions", pending.len());
+                        debug!(
+                            count = pending.len(),
+                            "Resubscribing to {} pending subscriptions",
+                            pending.len()
+                        );
                         for (coin, interval) in pending {
                             if let Err(e) = self.subscribe_candle_internal(&coin, &interval).await {
                                 debug!(coin = %coin, interval = %interval, error = %e, "Failed to resubscribe to {} {}", coin, interval);
@@ -226,18 +265,21 @@ impl TaskProvider {
                         error!(error = %e, "WebSocket error");
                     }
                 }
-            } else {
-                sleep(Duration::from_millis(100)).await;
             }
+            sleep(Duration::from_millis(100)).await;
         }
     }
 
-    async fn subscribe_candle_internal(&self, coin: &str, interval: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use super::subscriptions::SubscriptionKey;
+    async fn subscribe_candle_internal(
+        &self,
+        coin: &str,
+        interval: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use super::messages::{RequestMessage, Subscription};
-        
+        use super::subscriptions::SubscriptionKey;
+
         let key = SubscriptionKey::candle(coin, interval);
-        
+
         if self.subscriptions.contains(&key).await {
             return Ok(()); // Already subscribed
         }
@@ -245,19 +287,30 @@ impl TaskProvider {
         let subscription = Subscription::candle(coin, interval);
         let request = RequestMessage::Subscribe { subscription };
 
-        let json = serde_json::to_string(&request)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let json = serde_json::to_string(&request).map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
         debug!(subscription = %json, "TaskProvider sending subscription");
-        
-        self.client.send_text(json).await
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("WebSocket send error: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
+
+        self.client.send_text(json).await.map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "WebSocket send error: {}",
+                e
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         self.subscriptions.add(key).await;
         Ok(())
     }
 
-    async fn process_message(&self, text: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_message(
+        &self,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Log all incoming messages for debugging (truncate very long messages)
         let display_text = if text.len() > 500 {
             format!("{}... (truncated)", &text[..500])
@@ -265,7 +318,7 @@ impl TaskProvider {
             text.to_string()
         };
         debug!(message = %display_text, "Raw message received");
-        
+
         // Try to parse as our known message types
         let msg: WebSocketMessage = match serde_json::from_str(text) {
             Ok(msg) => msg,
@@ -281,19 +334,27 @@ impl TaskProvider {
                         // Try to parse as candle if channel looks like it
                         if channel.contains("candle") || channel == "candle" {
                             debug!("Attempting to parse as candle data...");
-                            if let Ok(candle_data) = serde_json::from_value::<CandleData>(value.clone()) {
+                            if let Ok(candle_data) =
+                                serde_json::from_value::<CandleData>(value.clone())
+                            {
                                 debug!("Successfully parsed as candle data (fallback)");
                                 if let Err(e) = self.process_candle_update(candle_data.data).await {
                                     error!(error = %e, "Error processing candle update");
                                 }
                                 return Ok(());
                             } else {
-                                debug!("Failed to parse as CandleData, trying alternative formats...");
+                                debug!(
+                                    "Failed to parse as CandleData, trying alternative formats..."
+                                );
                                 // Try parsing data as direct CandleUpdate
                                 if let Some(data_obj) = value.get("data") {
-                                    if let Ok(candle_update) = serde_json::from_value::<CandleUpdate>(data_obj.clone()) {
+                                    if let Ok(candle_update) =
+                                        serde_json::from_value::<CandleUpdate>(data_obj.clone())
+                                    {
                                         debug!("Parsed data as direct CandleUpdate");
-                                        if let Err(e) = self.process_candle_update(candle_update).await {
+                                        if let Err(e) =
+                                            self.process_candle_update(candle_update).await
+                                        {
                                             error!(error = %e, "Error processing candle update");
                                         }
                                         return Ok(());
@@ -320,7 +381,11 @@ impl TaskProvider {
                 }
             }
             WebSocketMessage::AllMidsData(mids_data) => {
-                debug!(count = mids_data.data.len(), "Received allMids data: {} prices", mids_data.data.len());
+                debug!(
+                    count = mids_data.data.len(),
+                    "Received allMids data: {} prices",
+                    mids_data.data.len()
+                );
                 for mid in mids_data.data {
                     let price: f64 = mid.px.parse().unwrap_or(0.0);
                     let mut prices = self.latest_prices.write().await;
@@ -333,7 +398,10 @@ impl TaskProvider {
                     Subscription::AllMids { .. } => "allMids".to_string(),
                     Subscription::Notification { user, .. } => format!("notification/{}", user),
                 };
-                let snapshot_info = resp.is_snapshot.map(|s| if s { " (snapshot)" } else { "" }).unwrap_or("");
+                let snapshot_info = resp
+                    .is_snapshot
+                    .map(|s| if s { " (snapshot)" } else { "" })
+                    .unwrap_or("");
                 debug!(method = %resp.data.method, subscription = %sub_info, snapshot = resp.is_snapshot.is_some(), "Subscription response: {} for {}{}", resp.data.method, sub_info, snapshot_info);
             }
             WebSocketMessage::Error(err) => {
@@ -344,10 +412,13 @@ impl TaskProvider {
         Ok(())
     }
 
-    async fn process_candle_update(&self, update: CandleUpdate) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_candle_update(
+        &self,
+        update: CandleUpdate,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let coin = &update.coin;
         let interval = &update.interval;
-        
+
         debug!(
             coin = %coin,
             interval = %interval,
@@ -360,20 +431,40 @@ impl TaskProvider {
             coin, interval, update.open, update.high, update.low, update.close, update.volume
         );
 
-        let open: f64 = update.open.parse()
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid open price: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
-        let high: f64 = update.high.parse()
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid high price: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
-        let low: f64 = update.low.parse()
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid low price: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
-        let close: f64 = update.close.parse()
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid close price: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
-        let volume: f64 = update.volume.parse()
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid volume: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
+        let open: f64 = update.open.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid open price: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let high: f64 = update.high.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid high price: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let low: f64 = update.low.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid low price: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let close: f64 = update.close.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid close price: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        let volume: f64 = update.volume.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid volume: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         // Use end_time as the candle timestamp (when the candle closed)
-        let timestamp = DateTime::from_timestamp(update.end_time as i64 / 1000, 0)
-            .unwrap_or_else(Utc::now);
+        let timestamp =
+            DateTime::from_timestamp(update.end_time as i64 / 1000, 0).unwrap_or_else(Utc::now);
 
         let candle = Candle::new(open, high, low, close, volume, timestamp);
 
@@ -387,12 +478,14 @@ impl TaskProvider {
         // Update in-memory buffer
         let symbol_key = format!("{}_{}", coin, interval);
         let mut candles_map = self.candles.write().await;
-        let candles = candles_map.entry(symbol_key.clone()).or_insert_with(VecDeque::new);
+        let candles = candles_map
+            .entry(symbol_key.clone())
+            .or_insert_with(VecDeque::new);
 
         // Remove any existing candle with the same timestamp (update existing candle)
         candles.retain(|c| c.timestamp != timestamp);
         candles.push_back(candle.clone());
-        
+
         // Keep only last 1000 candles per symbol
         while candles.len() > 1000 {
             candles.pop_front();
@@ -416,7 +509,10 @@ impl TaskProvider {
                 }
             } else {
                 // Cache miss, just cache this single candle
-                if let Err(e) = cache.cache_candles(coin, interval, &[candle.clone()]).await {
+                if let Err(e) = cache
+                    .cache_candles(coin, interval, std::slice::from_ref(&candle))
+                    .await
+                {
                     warn!(coin = %coin, interval = %interval, error = %e, "Failed to cache candle in Redis");
                 }
             }
@@ -438,7 +534,7 @@ impl MarketDataProvider for HyperliquidMarketDataProvider {
     ) -> Result<Vec<Candle>, Box<dyn std::error::Error + Send + Sync>> {
         let interval = self.get_primary_interval();
         let symbol_key = format!("{}_{}", symbol, interval);
-        
+
         // Try Redis cache first
         if let Some(ref cache) = self.cache {
             if let Ok(Some(mut cached_candles)) = cache.get_cached_candles(symbol, interval).await {
@@ -451,19 +547,19 @@ impl MarketDataProvider for HyperliquidMarketDataProvider {
                 return Ok(cached_candles);
             }
         }
-        
+
         // Fallback to QuestDB
         if let Some(ref db) = self.database {
             match db.get_candles(symbol, interval, Some(limit)).await {
                 Ok(mut db_candles) => {
                     db_candles.sort_by_key(|c| c.timestamp);
                     debug!(symbol = %symbol_key, count = db_candles.len(), "get_candles for {}: found {} candles in QuestDB", symbol_key, db_candles.len());
-                    
+
                     // Update Redis cache with these candles
                     if let Some(ref cache) = self.cache {
                         let _ = cache.cache_candles(symbol, interval, &db_candles).await;
                     }
-                    
+
                     return Ok(db_candles);
                 }
                 Err(e) => {
@@ -471,21 +567,21 @@ impl MarketDataProvider for HyperliquidMarketDataProvider {
                 }
             }
         }
-        
+
         // Fallback to in-memory buffer
         let candles_map = self.candles.read().await;
         if let Some(candles) = candles_map.get(&symbol_key) {
             let mut result: Vec<Candle> = candles.iter().cloned().collect();
             result.sort_by_key(|c| c.timestamp);
-            
+
             debug!(symbol = %symbol_key, count = result.len(), "get_candles for {}: found {} candles in memory buffer", symbol_key, result.len());
-            
+
             // Return last `limit` candles
             if result.len() > limit {
                 result = result.into_iter().rev().take(limit).collect();
                 result.reverse();
             }
-            
+
             Ok(result)
         } else {
             debug!(symbol = %symbol_key, "get_candles for {}: no candles found, subscribing...", symbol_key);
@@ -498,13 +594,19 @@ impl MarketDataProvider for HyperliquidMarketDataProvider {
         }
     }
 
-    async fn get_latest_price(&self, symbol: &str) -> Result<f64, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_latest_price(
+        &self,
+        symbol: &str,
+    ) -> Result<f64, Box<dyn std::error::Error + Send + Sync>> {
         let prices = self.latest_prices.read().await;
         if let Some(&price) = prices.get(symbol) {
             Ok(price)
         } else {
             // Subscribe to get price updates
-            if let Err(e) = self.subscribe_candle(symbol, self.get_primary_interval()).await {
+            if let Err(e) = self
+                .subscribe_candle(symbol, self.get_primary_interval())
+                .await
+            {
                 error!(symbol = %symbol, error = %e, "Failed to subscribe to {}", symbol);
             }
             // Wait a bit for price to arrive
@@ -514,7 +616,10 @@ impl MarketDataProvider for HyperliquidMarketDataProvider {
         }
     }
 
-    async fn subscribe(&self, symbol: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn subscribe(
+        &self,
+        symbol: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Subscribe to all intervals for this symbol
         for interval in &self.candle_intervals {
             if let Err(e) = self.subscribe_candle(symbol, interval).await {
@@ -531,4 +636,3 @@ impl Default for HyperliquidMarketDataProvider {
         Self::new()
     }
 }
-

@@ -22,4 +22,5 @@ Thumbs.db
 
 # Config files with secrets (if any)
 config.local.json
+.env
 

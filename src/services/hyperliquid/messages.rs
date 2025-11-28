@@ -127,4 +127,3 @@ pub struct ErrorMessage {
 pub struct ErrorData {
     pub error: String,
 }
-

@@ -39,16 +39,16 @@ Perptrix implements a signal engine based on the [RFC](https://github.com/lucast
 - Automatic storage in QuestDB and caching in Redis
 - Multi-interval support (1m, 5m, 15m, 1h)
 
-**Cloud Runtime:**
-- HTTP server with health check endpoint (`/health`)
+**Cloud Runtime & Observability:**
+- HTTP server with health, metrics, and tracing middleware
 - Periodic signal evaluation runtime with real market data
 - Hyperliquid market data provider with WebSocket and REST integration
+- Prometheus metrics + OpenTelemetry tracing pipelines wired to Grafana/Tempo
 - Environment-based configuration (sandbox/production)
 
 ### Missing / In Progress
 
-**Phase 3 Requirements:**
-- Structured logging/metrics suitable for cloud monitoring (only `println!` statements)
+**Phase 3 Follow-ups:**
 - Funding rate and open interest real-time updates (historical data fetching implemented)
 
 **Future Phases:**
@@ -84,10 +84,10 @@ Perptrix implements a signal engine based on the [RFC](https://github.com/lucast
             ├──────────────┐
             │              │
             ▼              ▼
-    ┌───────────────┐  ┌───────────────┐
-    │     Redis     │  │ In-Memory     │
-    │    (Cache)    │  │   Buffer      │
-    └───────┬───────┘  └───────┬───────┘
+    ┌───────────────┐  ┌───────────┐
+    │     Redis     │  │ In-Memory │
+    │    (Cache)    │  │   Buffer  │
+    └───────┬───────┘  └───────┬───┘
             │                  │
             └──────────┬───────┘
                        │
@@ -181,6 +181,9 @@ docker-compose up -d
 This will start:
 - **QuestDB** on ports 9000 (HTTP) and 8812 (PostgreSQL wire protocol)
 - **Redis** on port 6379
+- **Prometheus** on port 9090 (metrics collection)
+- **Grafana** on port 3000 (monitoring dashboard)
+- **Grafana Tempo** on ports 4318 (OTLP HTTP) and 3200 (query API) (trace storage)
 
 To stop the services:
 
@@ -190,15 +193,30 @@ docker-compose down
 
 To view QuestDB's web console, visit: http://localhost:9000
 
+To access monitoring dashboards:
+- **Grafana**: http://localhost:3000 (default credentials: admin/admin)
+- **Prometheus**: http://localhost:9090
+- **Tempo**: http://localhost:3200
+
 ## 🚀 Usage
 
 ### Running the Server
 
-Start the server using:
+**Setup:**
 
-```bash
-cargo run --bin server
-```
+1. Copy the environment template to create your local `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` to adjust configuration values as needed for your local setup.
+
+3. Start the server:
+   ```bash
+   cargo run --bin server
+   ```
+
+**Note:** The `.env` file is gitignored and will not be committed. Use `.env.example` as a template. The server automatically loads `.env` on startup via [`dotenvy`](https://crates.io/crates/dotenvy).
 
 **Environment Variables:**
 - `PORT` - HTTP server port (default: 8080)
@@ -210,6 +228,8 @@ cargo run --bin server
 - `QUESTDB_URL` - QuestDB connection string (default: `host=localhost user=admin password=quest port=8812`)
 - `REDIS_URL` - Redis connection string (default: `redis://127.0.0.1/`)
 - `HISTORICAL_CANDLE_COUNT` - Number of historical candles to fetch on startup (default: 200)
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry OTLP endpoint for traces (default: `http://localhost:4318`)
+- `OTEL_SERVICE_NAME` - Service name for traces (default: `perptrix-signal-engine`)
 
 **Configuration File:**
 - Create a `config.json` file in the working directory to customize category weights and other settings (see `config.example.json` for a template)
@@ -261,6 +281,47 @@ Response:
 5. Evaluates signals using cached/real-time data
 
 If QuestDB or Redis are unavailable, the system will gracefully degrade and continue operating with in-memory buffers.
+
+### Metrics Endpoint
+
+The HTTP server exposes a Prometheus metrics endpoint:
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+This endpoint returns metrics in Prometheus text format, including:
+- **HTTP Metrics**: Request count, latency, in-flight requests
+- **Signal Metrics**: Evaluation count, duration, active evaluations, errors
+- **System Metrics**: Database, cache, and WebSocket connection status
+
+### Observability
+
+Perptrix includes comprehensive observability with Prometheus metrics and OpenTelemetry tracing:
+
+**Metrics (Prometheus):**
+- HTTP request metrics (count, latency, errors)
+- Signal evaluation metrics (count, duration, success/failure)
+- System health metrics (database, cache, WebSocket connection status)
+
+**Traces (OpenTelemetry → Grafana Tempo):**
+- HTTP request traces (automatic via middleware)
+- Signal evaluation lifecycle
+- Database operations
+- Cache operations
+- WebSocket message processing
+
+**Monitoring Stack:**
+- **Prometheus**: Scrapes metrics from the `/metrics` endpoint every 10 seconds
+- **Grafana**: Pre-configured with Prometheus and Tempo datasources for visualization
+- **Grafana Tempo**: Receives traces via OTLP HTTP on port 4318
+
+To view metrics and traces:
+1. Start all services: `docker-compose up -d`
+2. Access Grafana at http://localhost:3000 (admin/admin)
+3. Create dashboards using the pre-configured Prometheus and Tempo datasources
+
+**Note:** If Tempo is unavailable, the application will continue without tracing. Metrics are always available via the `/metrics` endpoint.
 
 ## ⚡ Signal Engine
 
@@ -457,7 +518,6 @@ The signal engine uses integer scores to determine market bias, which maps to tr
 - Docker Compose setup for local development
 
 ### 🔜 Phase 3 — Remaining
-- Structured logging and metrics
 - Real-time funding rate and open interest updates
 
 ### 🔜 Phase 4 — Execution Engine

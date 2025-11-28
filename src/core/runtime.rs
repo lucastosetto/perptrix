@@ -1,8 +1,10 @@
 //! Periodic task runner for continuous signal evaluation
 
+use crate::metrics::Metrics;
 use crate::services::market_data::{MarketDataProvider, PlaceholderMarketDataProvider};
 use crate::signals::engine::SignalEngine;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info};
 
@@ -11,10 +13,20 @@ pub struct RuntimeConfig {
     pub symbols: Vec<String>,
 }
 
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            evaluation_interval_seconds: 60,
+            symbols: vec!["BTC-PERP".to_string()],
+        }
+    }
+}
+
 pub struct SignalRuntime {
     config: RuntimeConfig,
     data_provider: Arc<dyn MarketDataProvider + Send + Sync>,
     database: Option<Arc<crate::db::QuestDatabase>>,
+    metrics: Option<Arc<Metrics>>,
 }
 
 impl SignalRuntime {
@@ -23,6 +35,7 @@ impl SignalRuntime {
             config,
             data_provider: Arc::new(PlaceholderMarketDataProvider),
             database: None,
+            metrics: None,
         }
     }
 
@@ -34,11 +47,17 @@ impl SignalRuntime {
             config,
             data_provider: Arc::new(provider),
             database: None,
+            metrics: None,
         }
     }
 
     pub fn with_database(mut self, database: Arc<crate::db::QuestDatabase>) -> Self {
         self.database = Some(database);
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 
@@ -58,16 +77,35 @@ impl SignalRuntime {
             for symbol in &self.config.symbols {
                 match self.evaluate_signal(symbol).await {
                     Ok(Some(signal)) => {
-                        info!(
-                            symbol = %symbol,
-                            direction = ?signal.direction,
-                            confidence = signal.confidence * 100.0,
-                            "Signal for {}: {:?} (confidence: {:.2}%)",
-                            symbol,
-                            signal.direction,
-                            signal.confidence * 100.0
-                        );
-                        
+                        // Log at different levels based on signal strength
+                        let confidence_pct = (signal.confidence * 10000.0).round() / 100.0;
+                        if signal.direction == crate::models::signal::SignalDirection::Neutral {
+                            debug!(
+                                symbol = %symbol,
+                                direction = ?signal.direction,
+                                confidence = confidence_pct,
+                                "Signal for {}: {:?} (confidence: {:.2}%)",
+                                symbol,
+                                signal.direction,
+                                confidence_pct
+                            );
+                        } else {
+                            info!(
+                                symbol = %symbol,
+                                direction = ?signal.direction,
+                                confidence = confidence_pct,
+                                "Signal for {}: {:?} (confidence: {:.2}%)",
+                                symbol,
+                                signal.direction,
+                                confidence_pct
+                            );
+                        }
+
+                        // Record successful evaluation
+                        if let Some(ref metrics) = self.metrics {
+                            metrics.signal_evaluations_total.inc();
+                        }
+
                         // Store signal in database if available
                         if let Some(ref db) = self.database {
                             if let Err(e) = db.store_signal(&signal).await {
@@ -77,9 +115,17 @@ impl SignalRuntime {
                     }
                     Ok(None) => {
                         debug!(symbol = %symbol, "No signal generated for {}", symbol);
+                        // Still count as evaluation (no signal is a valid result)
+                        if let Some(ref metrics) = self.metrics {
+                            metrics.signal_evaluations_total.inc();
+                        }
                     }
                     Err(e) => {
                         error!(symbol = %symbol, error = %e, "Error evaluating signal for {}", symbol);
+                        // Record error
+                        if let Some(ref metrics) = self.metrics {
+                            metrics.signal_evaluation_errors_total.inc();
+                        }
                     }
                 }
             }
@@ -90,9 +136,42 @@ impl SignalRuntime {
     async fn evaluate_signal(
         &self,
         symbol: &str,
-    ) -> Result<Option<crate::models::signal::SignalOutput>, Box<dyn std::error::Error + Send + Sync>> {
-        let candles = self.data_provider.get_candles(symbol, 250).await
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Market data error: {}", e))) as Box<dyn std::error::Error + Send + Sync>)?;
+    ) -> Result<Option<crate::models::signal::SignalOutput>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let start = Instant::now();
+
+        // Track active evaluation
+        if let Some(ref metrics) = self.metrics {
+            metrics.signal_evaluations_active.inc();
+        }
+
+        let result = self.evaluate_signal_internal(symbol).await;
+
+        // Record duration and decrement active
+        if let Some(ref metrics) = self.metrics {
+            let duration = start.elapsed();
+            metrics
+                .signal_evaluation_duration_seconds
+                .observe(duration.as_secs_f64());
+            metrics.signal_evaluations_active.dec();
+        }
+
+        result
+    }
+
+    async fn evaluate_signal_internal(
+        &self,
+        symbol: &str,
+    ) -> Result<Option<crate::models::signal::SignalOutput>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let candles = self
+            .data_provider
+            .get_candles(symbol, 250)
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!("Market data error: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
         if candles.is_empty() {
             debug!(symbol = %symbol, "No candles available yet - waiting for WebSocket data");
@@ -107,7 +186,7 @@ impl SignalRuntime {
             candles.len(),
             crate::signals::engine::MIN_CANDLES
         );
-        
+
         if candles.len() < crate::signals::engine::MIN_CANDLES {
             debug!(
                 symbol = %symbol,
@@ -119,25 +198,25 @@ impl SignalRuntime {
             );
             return Ok(None);
         }
-        
+
         let signal = SignalEngine::evaluate(&candles, symbol);
-        
+
         if signal.is_none() {
             debug!(symbol = %symbol, "Signal evaluation returned None (likely insufficient data or neutral score)");
         } else if let Some(ref sig) = signal {
-            debug!(
+            let confidence_pct = (sig.confidence * 10000.0).round() / 100.0;
+            info!(
                 symbol = %symbol,
                 direction = ?sig.direction,
-                confidence = sig.confidence * 100.0,
+                confidence = confidence_pct,
                 reasons = ?sig.reasons,
                 "Signal generated - Direction: {:?}, Confidence: {:.2}%, Reasons: {:?}",
                 sig.direction,
-                sig.confidence * 100.0,
+                confidence_pct,
                 sig.reasons
             );
         }
-        
+
         Ok(signal)
     }
 }
-

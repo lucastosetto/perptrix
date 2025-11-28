@@ -34,7 +34,6 @@ struct HyperliquidCandleResponse {
     trades: Option<u64>,
 }
 
-
 pub struct HyperliquidRestClient {
     base_url: String,
     client: reqwest::Client,
@@ -49,12 +48,12 @@ impl HyperliquidRestClient {
     }
 
     /// Fetch historical candles for a symbol and interval
-    /// 
+    ///
     /// # Arguments
     /// * `coin` - The coin symbol (e.g., "BTC")
     /// * `interval` - The candle interval (e.g., "1m", "5m", "15m", "1h")
     /// * `count` - Number of candles to fetch
-    /// 
+    ///
     /// # Returns
     /// Vector of Candle objects sorted by timestamp (oldest first)
     pub async fn fetch_historical_candles(
@@ -66,11 +65,11 @@ impl HyperliquidRestClient {
         // Hyperliquid REST API uses POST with JSON body
         // Format: {"type":"candleSnapshot","req":{"coin":"BTC","interval":"1m","startTime":...,"endTime":...}}
         let url = format!("{}/info", self.base_url);
-        
+
         // Calculate timestamps based on interval and count
         let now = Utc::now();
         let end_time = now.timestamp_millis() as u64;
-        
+
         // Calculate start time based on interval duration
         let interval_seconds = match interval {
             "1m" => 60,
@@ -81,11 +80,11 @@ impl HyperliquidRestClient {
             "1d" => 86400,
             _ => 60, // default to 1 minute
         };
-        
+
         // Add some buffer (extra 10% to ensure we get enough candles)
         let duration_ms = (interval_seconds * count as u64 * 110 / 100) * 1000;
         let start_time = end_time.saturating_sub(duration_ms);
-        
+
         let request_body = serde_json::json!({
             "type": "candleSnapshot",
             "req": {
@@ -103,37 +102,37 @@ impl HyperliquidRestClient {
             .send()
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("HTTP request failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!("HTTP request failed: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
             })?;
 
         let status = response.status();
         let text = response.text().await.map_err(|e| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to read response: {}", e),
-            )) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other(format!(
+                "Failed to read response: {}",
+                e
+            ))) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
         if !status.is_success() {
             debug!(status = %status, response = %text, "Hyperliquid REST API error response");
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("HTTP error: {} - Response: {}", status, text),
-            )) as Box<dyn std::error::Error + Send + Sync>);
+            return Err(Box::new(std::io::Error::other(format!(
+                "HTTP error: {} - Response: {}",
+                status, text
+            ))) as Box<dyn std::error::Error + Send + Sync>);
         }
 
         // Parse the response - Hyperliquid may return different formats
         // Try parsing as array of candles first
-        let candles: Vec<HyperliquidCandleResponse> = serde_json::from_str(&text)
-            .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("Failed to parse candles response: {} - Response: {}", e, text),
-                )) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+        let candles: Vec<HyperliquidCandleResponse> = serde_json::from_str(&text).map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Failed to parse candles response: {} - Response: {}",
+                    e, text
+                ),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         let mut result = Vec::new();
         for candle in candles {
@@ -169,8 +168,8 @@ impl HyperliquidRestClient {
             })?;
 
             // Use end_time as the candle timestamp (when the candle closed)
-            let timestamp = DateTime::from_timestamp(candle.end_time as i64 / 1000, 0)
-                .unwrap_or_else(Utc::now);
+            let timestamp =
+                DateTime::from_timestamp(candle.end_time as i64 / 1000, 0).unwrap_or_else(Utc::now);
 
             result.push(Candle::new(open, high, low, close, volume, timestamp));
         }
@@ -187,4 +186,3 @@ impl Default for HyperliquidRestClient {
         Self::new()
     }
 }
-
