@@ -5,7 +5,7 @@ use crate::config;
 use crate::db::QuestDatabase;
 use crate::models::indicators::Candle;
 use crate::services::market_data::MarketDataProvider;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -28,6 +28,7 @@ pub struct HyperliquidMarketDataProvider {
     rest_client: Arc<HyperliquidRestClient>,
     database: Option<Arc<QuestDatabase>>,
     cache: Option<Arc<RedisCache>>,
+    funding_cache: Arc<RwLock<HashMap<String, FundingCacheEntry>>>,
 }
 
 impl HyperliquidMarketDataProvider {
@@ -51,6 +52,7 @@ impl HyperliquidMarketDataProvider {
             rest_client: Arc::new(HyperliquidRestClient::new()),
             database: None,
             cache: None,
+            funding_cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Start connection task in background
@@ -78,6 +80,8 @@ impl HyperliquidMarketDataProvider {
             candle_intervals: self.candle_intervals.clone(),
             database: self.database.clone(),
             cache: self.cache.clone(),
+            rest_client: self.rest_client.clone(),
+            funding_cache: self.funding_cache.clone(),
         }
     }
 
@@ -95,8 +99,11 @@ impl HyperliquidMarketDataProvider {
             .fetch_historical_candles(coin, interval, historical_count)
             .await
         {
-            Ok(historical_candles) => {
+            Ok(mut historical_candles) => {
                 debug!(coin = %coin, interval = %interval, count = historical_candles.len(), "Fetched {} historical candles for {}/{}", historical_candles.len(), coin, interval);
+
+                self.attach_funding_rates(coin, &mut historical_candles)
+                    .await;
 
                 // Store in QuestDB if available
                 if let Some(ref db) = self.database {
@@ -193,6 +200,56 @@ impl HyperliquidMarketDataProvider {
         Ok(())
     }
 
+    async fn attach_funding_rates(&self, coin: &str, candles: &mut [Candle]) {
+        if candles.is_empty() {
+            return;
+        }
+
+        let first_ts = candles
+            .first()
+            .map(|c| c.timestamp.timestamp_millis().max(0) as u64)
+            .unwrap_or(0);
+        let last_ts = candles
+            .last()
+            .map(|c| c.timestamp.timestamp_millis().max(0) as u64)
+            .unwrap_or(first_ts);
+        let buffer_ms = 2 * 60 * 60 * 1000; // + / - 2h buffer
+        let start_time = first_ts.saturating_sub(buffer_ms);
+        let end_time = last_ts.saturating_add(buffer_ms);
+
+        match self
+            .rest_client
+            .fetch_funding_history(coin, Some(start_time), Some(end_time))
+            .await
+        {
+            Ok(mut funding_points) => {
+                if funding_points.is_empty() {
+                    debug!(coin = %coin, "No funding history returned for {}", coin);
+                    return;
+                }
+                funding_points.sort_by_key(|p| p.timestamp);
+
+                let mut idx = 0usize;
+                let mut current_rate: Option<f64> = None;
+                for candle in candles.iter_mut() {
+                    while idx < funding_points.len()
+                        && funding_points[idx].timestamp <= candle.timestamp
+                    {
+                        current_rate = Some(funding_points[idx].funding_rate);
+                        idx += 1;
+                    }
+
+                    if let Some(rate) = current_rate {
+                        candle.funding_rate = Some(rate);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(coin = %coin, error = %e, "Failed to fetch funding history for {}", coin);
+            }
+        }
+    }
+
     fn get_primary_interval(&self) -> &str {
         self.candle_intervals
             .first()
@@ -227,6 +284,8 @@ struct TaskProvider {
     candle_intervals: Vec<String>,
     database: Option<Arc<QuestDatabase>>,
     cache: Option<Arc<RedisCache>>,
+    rest_client: Arc<HyperliquidRestClient>,
+    funding_cache: Arc<RwLock<HashMap<String, FundingCacheEntry>>>,
 }
 
 impl TaskProvider {
@@ -466,7 +525,9 @@ impl TaskProvider {
         let timestamp =
             DateTime::from_timestamp(update.end_time as i64 / 1000, 0).unwrap_or_else(Utc::now);
 
-        let candle = Candle::new(open, high, low, close, volume, timestamp);
+        let mut candle = Candle::new(open, high, low, close, volume, timestamp);
+
+        self.attach_live_funding_rate(coin, &mut candle).await;
 
         // Store in QuestDB
         if let Some(ref db) = self.database {
@@ -523,6 +584,53 @@ impl TaskProvider {
 
         Ok(())
     }
+
+    async fn attach_live_funding_rate(&self, coin: &str, candle: &mut Candle) {
+        if candle.funding_rate.is_some() {
+            return;
+        }
+
+        let mut needs_fetch = true;
+        {
+            let cache = self.funding_cache.read().await;
+            if let Some(entry) = cache.get(coin) {
+                if candle.timestamp <= entry.timestamp + ChronoDuration::hours(1) {
+                    candle.funding_rate = Some(entry.rate);
+                    needs_fetch = false;
+                }
+            }
+        }
+
+        if !needs_fetch {
+            return;
+        }
+
+        match self.rest_client.fetch_latest_funding_rate(coin).await {
+            Ok(Some(point)) => {
+                candle.funding_rate = Some(point.funding_rate);
+                let mut cache = self.funding_cache.write().await;
+                cache.insert(
+                    coin.to_string(),
+                    FundingCacheEntry {
+                        timestamp: point.timestamp,
+                        rate: point.funding_rate,
+                    },
+                );
+            }
+            Ok(None) => {
+                debug!(coin = %coin, "No latest funding rate returned for {}", coin);
+            }
+            Err(e) => {
+                warn!(coin = %coin, error = %e, "Failed to fetch latest funding rate for {}", coin);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FundingCacheEntry {
+    timestamp: DateTime<Utc>,
+    rate: f64,
 }
 
 #[async_trait::async_trait]

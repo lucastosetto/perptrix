@@ -34,6 +34,26 @@ struct HyperliquidCandleResponse {
     trades: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct HyperliquidFundingHistoryEntry {
+    #[serde(rename = "coin")]
+    coin: String,
+    #[serde(rename = "fundingRate")]
+    funding_rate: String,
+    #[serde(rename = "premium", default)]
+    #[allow(dead_code)]
+    premium: Option<String>,
+    #[serde(rename = "time")]
+    timestamp: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FundingRatePoint {
+    pub coin: String,
+    pub funding_rate: f64,
+    pub timestamp: DateTime<Utc>,
+}
+
 pub struct HyperliquidRestClient {
     base_url: String,
     client: reqwest::Client,
@@ -178,6 +198,134 @@ impl HyperliquidRestClient {
         result.sort_by_key(|c| c.timestamp);
 
         Ok(result)
+    }
+
+    /// Fetch funding rate history for a coin within a timeframe.
+    pub async fn fetch_funding_history(
+        &self,
+        coin: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
+    ) -> Result<Vec<FundingRatePoint>, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/info", self.base_url);
+        let now = Utc::now().timestamp_millis() as u64;
+        let end = end_time.unwrap_or(now);
+        // Default to 24h window if no start provided
+        let day_ms = 24 * 60 * 60 * 1000;
+        let start = start_time.unwrap_or_else(|| end.saturating_sub(day_ms));
+
+        let request_body = serde_json::json!({
+            "type": "fundingHistory",
+            "coin": coin,
+            "startTime": start,
+            "endTime": end
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!("HTTP request failed: {}", e)))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+        let status = response.status();
+        let text = response.text().await.map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to read response: {}",
+                e
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        if !status.is_success() {
+            debug!(status = %status, response = %text, "Hyperliquid REST API error response");
+            return Err(Box::new(std::io::Error::other(format!(
+                "HTTP error: {} - Response: {}",
+                status, text
+            ))) as Box<dyn std::error::Error + Send + Sync>);
+        }
+
+        parse_funding_history_response(&text)
+    }
+
+    /// Fetch the most recent funding rate entry for a coin.
+    pub async fn fetch_latest_funding_rate(
+        &self,
+        coin: &str,
+    ) -> Result<Option<FundingRatePoint>, Box<dyn std::error::Error + Send + Sync>> {
+        let end = Utc::now().timestamp_millis() as u64;
+        // Look back 25 hours to handle delayed settlements
+        let start = end.saturating_sub(25 * 60 * 60 * 1000);
+        let mut history = self
+            .fetch_funding_history(coin, Some(start), Some(end))
+            .await?;
+        history.sort_by_key(|entry| entry.timestamp);
+        Ok(history.into_iter().last())
+    }
+}
+
+fn parse_funding_history_response(
+    text: &str,
+) -> Result<Vec<FundingRatePoint>, Box<dyn std::error::Error + Send + Sync>> {
+    let entries: Vec<HyperliquidFundingHistoryEntry> = serde_json::from_str(text).map_err(|e| {
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "Failed to parse funding history response: {} - Response: {}",
+                e, text
+            ),
+        )) as Box<dyn std::error::Error + Send + Sync>
+    })?;
+
+    let mut points = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let funding_rate: f64 = entry.funding_rate.parse().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid funding rate value: {}", e),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        let timestamp =
+            DateTime::from_timestamp(entry.timestamp as i64 / 1000, 0).unwrap_or_else(Utc::now);
+
+        points.push(FundingRatePoint {
+            coin: entry.coin,
+            funding_rate,
+            timestamp,
+        });
+    }
+
+    Ok(points)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_funding_history_response() {
+        let json = r#"
+        [
+            {"coin":"BTC","fundingRate":"0.0001","premium":"0.0","time":1700000000000},
+            {"coin":"BTC","fundingRate":"-0.0002","premium":"0.0","time":1700003600000}
+        ]
+        "#;
+        let points = parse_funding_history_response(json).expect("parse funding history");
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].coin, "BTC");
+        assert!((points[0].funding_rate - 0.0001).abs() < 1e-9);
+        assert!(points[1].funding_rate < 0.0);
+    }
+
+    #[test]
+    fn rejects_invalid_funding_history_payload() {
+        let json = r#"[{"coin":"BTC","fundingRate":"abc","time":1700000000000}]"#;
+        let result = parse_funding_history_response(json);
+        assert!(result.is_err());
     }
 }
 

@@ -48,12 +48,8 @@ Perptrix implements a signal engine based on the [RFC](https://github.com/lucast
 
 ### Missing / In Progress
 
-**Phase 3 Follow-ups:**
-- Funding rate and open interest real-time updates (historical data fetching implemented)
-
-**Future Phases:**
-- Execution engine (order placement, trade management)
 - Dashboard & backtester
+- Execution engine (order placement, trade management)
 
 ## 🏗️ Architecture
 
@@ -385,9 +381,9 @@ The signal engine uses 10 indicators organized into 5 categories. Each indicator
 - Signals: Bullish/Bearish Expansion (±2), Squeeze Conditions (±1)
 
 **Funding Rate - 24-hour rolling average**
-- Measures perpetual swap funding bias
-- Detects extreme positioning
-- Signals: Extreme Bias (inverse: -1 for long bias, +1 for short bias)
+- Measures perpetual swap funding bias with live + historical pulls
+- Detects extreme positioning/crowding and widens SL/TP when necessary
+- Signals: Extreme long bias (bearish fade), extreme short bias (bullish squeeze), moderate lean adjusts perp score ±1
 
 ### Signal Aggregation
 
@@ -419,9 +415,10 @@ Indicators are combined using a category-based scoring system:
 
 6. **Risk Assessment**: Considers:
    - Volatility regime (high volatility increases risk)
-   - Extreme funding rates (increases risk)
+   - Extreme funding rates (increase risk when trading with the crowd, reduce it when fading extremes)
    - Weak total score (increases risk)
    - RSI divergences (decreases risk)
+   - Funding-driven SL/TP widening when crowds are stretched (protects against forced exits)
 
 ## 🧪 Testing
 

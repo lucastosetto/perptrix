@@ -123,12 +123,22 @@ impl SignalEngine {
         };
 
         let atr_value = atr.current().unwrap_or(0.0);
-        let (sl_pct, tp_pct) = match direction {
+        let (mut sl_pct, mut tp_pct) = match direction {
             SignalDirection::Long | SignalDirection::Short if atr_value > 0.0 => {
                 StopLossTakeProfit::calculate_from_atr(atr_value, current_price)
             }
             _ => (0.0, 0.0),
         };
+
+        if matches!(
+            funding_signal,
+            funding_rate::FundingSignal::ExtremeLongBias
+                | funding_rate::FundingSignal::ExtremShortBias
+        ) && sl_pct > 0.0
+        {
+            sl_pct *= 1.2;
+            tp_pct *= 1.1;
+        }
 
         let mut reasons: Vec<SignalReason> = trading_signal
             .reasons
@@ -138,6 +148,17 @@ impl SignalEngine {
                 weight: 1.0,
             })
             .collect();
+        if matches!(
+            funding_signal,
+            funding_rate::FundingSignal::ExtremeLongBias
+                | funding_rate::FundingSignal::ExtremShortBias
+        ) && sl_pct > 0.0
+        {
+            reasons.push(SignalReason {
+                description: "Widened SL/TP due to funding imbalance".into(),
+                weight: 0.4,
+            });
+        }
         reasons.push(SignalReason {
             description: format!("Risk level: {:?}", trading_signal.risk_level),
             weight: 0.5,

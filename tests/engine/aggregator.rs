@@ -19,7 +19,7 @@ fn bullish_signals() -> IndicatorSignals {
         obv_signal: obv::OBVSignal::Confirmation,
         volume_profile_signal: volume_profile::VolumeProfileSignal::POCSupport,
         oi_signal: open_interest::OpenInterestSignal::BullishExpansion,
-        funding_signal: funding_rate::FundingSignal::NeutralPositive,
+        funding_signal: funding_rate::FundingSignal::NeutralNegative,
     }
 }
 
@@ -44,4 +44,28 @@ fn aggregator_flags_high_risk_when_volatility_high() {
     signals.rsi_signal = rsi::RSISignal::Neutral;
     let result = aggregator.aggregate(signals);
     assert_eq!(result.risk_level, RiskLevel::High);
+}
+
+#[test]
+fn funding_extremes_penalize_crowded_longs() {
+    let aggregator = SignalAggregator::new();
+    let mut signals = bullish_signals();
+    let base = aggregator.aggregate(signals.clone());
+    signals.funding_signal = funding_rate::FundingSignal::ExtremeLongBias;
+    let result = aggregator.aggregate(signals);
+    assert!(result.score_breakdown.perp_score < base.score_breakdown.perp_score);
+    assert!(matches!(
+        result.risk_level,
+        RiskLevel::Medium | RiskLevel::High
+    ));
+}
+
+#[test]
+fn funding_extremes_support_contrarian_longs() {
+    let aggregator = SignalAggregator::new();
+    let mut signals = bullish_signals();
+    signals.funding_signal = funding_rate::FundingSignal::ExtremShortBias;
+    let result = aggregator.aggregate(signals);
+    assert!(result.score_breakdown.perp_score >= 2);
+    assert!(result.confidence > 0.5);
 }

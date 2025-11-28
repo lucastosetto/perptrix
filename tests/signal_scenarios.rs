@@ -180,3 +180,35 @@ fn test_major_reversal() {
             | perptrix::models::signal::SignalDirection::Neutral
     ));
 }
+
+#[test]
+fn extreme_positive_funding_pushes_contrarian_bias() {
+    let mut candles = create_uptrend_candles(250);
+    for candle in candles.iter_mut() {
+        candle.funding_rate = Some(0.0015);
+    }
+    let signal = SignalEngine::evaluate(&candles, "BTC");
+    assert!(signal.is_some());
+    let s = signal.unwrap();
+    assert!(matches!(
+        s.direction,
+        perptrix::models::signal::SignalDirection::Short
+            | perptrix::models::signal::SignalDirection::Neutral
+    ));
+}
+
+#[test]
+fn extreme_negative_funding_supports_long_bias() {
+    let mut candles = create_downtrend_candles(250);
+    for candle in candles.iter_mut() {
+        candle.funding_rate = Some(-0.0015);
+    }
+    let signal = SignalEngine::evaluate(&candles, "BTC");
+    assert!(signal.is_some());
+    let s = signal.unwrap();
+    assert!(matches!(
+        s.direction,
+        perptrix::models::signal::SignalDirection::Long
+            | perptrix::models::signal::SignalDirection::Neutral
+    ));
+}

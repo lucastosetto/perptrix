@@ -226,12 +226,28 @@ impl SignalAggregator {
 
         match signals.funding_signal {
             funding_rate::FundingSignal::ExtremeLongBias => {
-                score -= 1;
-                reasons.push("Extreme long bias - caution".into());
+                score -= 2;
+                reasons.push("Funding extremes favor longs (crowded)".into());
             }
             funding_rate::FundingSignal::ExtremShortBias => {
+                score += 2;
+                reasons.push("Funding extremes favor shorts (squeeze fuel)".into());
+            }
+            funding_rate::FundingSignal::HighLongBias => {
+                score -= 1;
+                reasons.push("Elevated long funding - fade rallies".into());
+            }
+            funding_rate::FundingSignal::HighShortBias => {
                 score += 1;
-                reasons.push("Extreme short bias - bounce potential".into());
+                reasons.push("Elevated short funding - fade selloffs".into());
+            }
+            funding_rate::FundingSignal::NeutralPositive => {
+                score -= 1;
+                reasons.push("Funding leaning long - tactical bearish tilt".into());
+            }
+            funding_rate::FundingSignal::NeutralNegative => {
+                score += 1;
+                reasons.push("Funding leaning short - tactical bullish tilt".into());
             }
             _ => {}
         }
@@ -287,12 +303,26 @@ impl SignalAggregator {
             risk_factors += 2;
         }
 
-        if matches!(
-            signals.funding_signal,
-            funding_rate::FundingSignal::ExtremeLongBias
-                | funding_rate::FundingSignal::ExtremShortBias
-        ) {
-            risk_factors += 1;
+        match signals.funding_signal {
+            funding_rate::FundingSignal::ExtremeLongBias => {
+                if total_score >= 0 {
+                    risk_factors += 2;
+                } else {
+                    risk_factors = risk_factors.saturating_sub(1);
+                }
+            }
+            funding_rate::FundingSignal::ExtremShortBias => {
+                if total_score <= 0 {
+                    risk_factors += 2;
+                } else {
+                    risk_factors = risk_factors.saturating_sub(1);
+                }
+            }
+            funding_rate::FundingSignal::HighLongBias
+            | funding_rate::FundingSignal::HighShortBias => {
+                risk_factors += 1;
+            }
+            _ => {}
         }
 
         if total_score.abs() < 2 {
