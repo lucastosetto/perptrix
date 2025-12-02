@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use serde_json::Value;
+use utoipa::ToSchema;
 
 /// Main strategy entity
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,30 +18,39 @@ pub struct Strategy {
 }
 
 /// Main strategy configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StrategyConfig {
+    /// List of rules to evaluate
     pub rules: Vec<Rule>,
+    /// Aggregation configuration
     pub aggregation: AggregationConfig,
 }
 
 /// Individual condition or group
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Rule {
+    /// Rule identifier
     pub id: String,
     #[serde(rename = "type")]
+    /// Rule type (Condition, Group, or WeightedGroup)
     pub rule_type: RuleType,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional weight for weighted aggregation
     pub weight: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Logical operator for groups (AND/OR)
     pub operator: Option<LogicalOperator>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Condition for Condition-type rules
     pub condition: Option<Condition>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Child rules for Group-type rules (recursive structure)
+    #[schema(no_recursion)]
     pub children: Option<Vec<Rule>>,
 }
 
 /// Rule type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum RuleType {
     Condition,
@@ -49,20 +59,25 @@ pub enum RuleType {
 }
 
 /// Indicator comparison condition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Condition {
+    /// Indicator type to evaluate
     pub indicator: IndicatorType,
     #[serde(default)]
+    /// Optional indicator-specific parameters
     pub indicator_params: HashMap<String, Value>,
+    /// Comparison operation
     pub comparison: Comparison,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Threshold value for numeric comparisons
     pub threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signal_state: Option<String>, // Indicator-specific signal state (e.g., "Oversold", "BullishCross")
+    /// Indicator-specific signal state (e.g., "Oversold", "BullishCross")
+    pub signal_state: Option<String>,
 }
 
 /// Available indicator types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum IndicatorType {
     MACD,
@@ -78,7 +93,7 @@ pub enum IndicatorType {
 }
 
 /// Comparison operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum Comparison {
     GreaterThan,
@@ -92,7 +107,7 @@ pub enum Comparison {
 }
 
 /// Logical operators for grouping
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LogicalOperator {
     AND,
@@ -100,14 +115,16 @@ pub enum LogicalOperator {
 }
 
 /// How to combine rule results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AggregationConfig {
+    /// Aggregation method
     pub method: AggregationMethod,
+    /// Signal thresholds
     pub thresholds: SignalThresholds,
 }
 
 /// Aggregation methods
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum AggregationMethod {
     Sum,
@@ -118,9 +135,11 @@ pub enum AggregationMethod {
 }
 
 /// Score thresholds for signal generation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SignalThresholds {
+    /// Minimum score for long signal
     pub long_min: i32,
+    /// Maximum score for short signal
     pub short_max: i32,
 }
 

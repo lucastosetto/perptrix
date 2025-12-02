@@ -9,7 +9,6 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -19,6 +18,8 @@ use tower_http::{
     trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
 use tracing::{error, info, Level};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::db::QuestDatabase;
 use crate::metrics::Metrics;
@@ -32,9 +33,16 @@ pub struct AppState {
     pub database: Option<Arc<QuestDatabase>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HealthStatus {
     pub status: String,
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+pub struct HealthResponse {
+    pub status: String,
+    pub uptime_seconds: u64,
+    pub service: String,
 }
 
 impl Default for HealthStatus {
@@ -45,16 +53,38 @@ impl Default for HealthStatus {
     }
 }
 
-pub async fn health_check(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+/// Health check endpoint
+///
+/// Returns the health status and uptime of the service
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service is healthy", body = HealthResponse)
+    )
+)]
+pub async fn health_check(State(state): State<AppState>) -> Result<Json<HealthResponse>, StatusCode> {
     let health = state.health.read().await;
     let uptime_seconds = state.start_time.elapsed().as_secs();
-    Ok(Json(json!({
-        "status": health.status,
-        "uptime_seconds": uptime_seconds,
-        "service": "perptrix-signal-engine"
-    })))
+    Ok(Json(HealthResponse {
+        status: health.status.clone(),
+        uptime_seconds,
+        service: "perptrix-signal-engine".to_string(),
+    }))
 }
 
+/// Prometheus metrics endpoint
+///
+/// Returns metrics in Prometheus format
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    tag = "Metrics",
+    responses(
+        (status = 200, description = "Metrics in Prometheus format", content_type = "text/plain")
+    )
+)]
 pub async fn metrics_handler(State(state): State<AppState>) -> Result<String, StatusCode> {
     state
         .metrics
@@ -62,74 +92,47 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Result<String, St
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-/// Middleware to track HTTP request metrics
-async fn metrics_middleware(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let start = Instant::now();
-    let method = request.method().clone();
-    let path = request.uri().path().to_string();
 
-    // Increment in-flight requests
-    state.metrics.http_requests_in_flight.inc();
-
-    // Process request
-    let response = next.run(request).await;
-    let status = response.status();
-    let duration = start.elapsed();
-
-    // Decrement in-flight requests
-    state.metrics.http_requests_in_flight.dec();
-
-    // Record metrics
-    state.metrics.http_requests_total.inc();
-    state
-        .metrics
-        .http_request_duration_seconds
-        .observe(duration.as_secs_f64());
-
-    // Log if error status
-    if status.is_server_error() {
-        tracing::error!(
-            method = %method,
-            path = %path,
-            status = %status,
-            duration_ms = duration.as_millis(),
-            "HTTP request error"
-        );
-    }
-
-    response
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+#[into_params(parameter_in = Query)]
 struct StrategyQuery {
+    /// Filter strategies by symbol
     symbol: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 struct CreateStrategyRequest {
+    /// Strategy name
     name: String,
+    /// Trading symbol (e.g., "BTC-USD")
     symbol: String,
+    /// Strategy configuration
     config: StrategyConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 struct UpdateStrategyRequest {
+    /// Strategy name (optional)
     name: Option<String>,
+    /// Trading symbol (optional)
     symbol: Option<String>,
+    /// Strategy configuration (optional)
     config: Option<StrategyConfig>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 struct StrategyResponse {
+    /// Strategy ID
     id: i64,
+    /// Strategy name
     name: String,
+    /// Trading symbol
     symbol: String,
+    /// Strategy configuration
     config: StrategyConfig,
+    /// Creation timestamp
     created_at: chrono::DateTime<chrono::Utc>,
+    /// Last update timestamp
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -147,10 +150,20 @@ impl From<Strategy> for StrategyResponse {
 }
 
 /// List all strategies, optionally filtered by symbol
+#[utoipa::path(
+    get,
+    path = "/api/strategies",
+    tag = "Strategies",
+    params(StrategyQuery),
+    responses(
+        (status = 200, description = "List of strategies", body = Vec<StrategyResponse>),
+        (status = 503, description = "Database unavailable")
+    )
+)]
 async fn list_strategies(
     State(state): State<AppState>,
     Query(params): Query<StrategyQuery>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Vec<StrategyResponse>>, StatusCode> {
     let db = state
         .database
         .as_ref()
@@ -165,10 +178,23 @@ async fn list_strategies(
         })?;
 
     let responses: Vec<StrategyResponse> = strategies.into_iter().map(Into::into).collect();
-    Ok(Json(json!(responses)))
+    Ok(Json(responses))
 }
 
 /// Get a strategy by ID
+#[utoipa::path(
+    get,
+    path = "/api/strategies/{id}",
+    tag = "Strategies",
+    params(
+        ("id" = i64, Path, description = "Strategy ID")
+    ),
+    responses(
+        (status = 200, description = "Strategy found", body = StrategyResponse),
+        (status = 404, description = "Strategy not found"),
+        (status = 503, description = "Database unavailable")
+    )
+)]
 async fn get_strategy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -191,6 +217,16 @@ async fn get_strategy(
 }
 
 /// Create a new strategy
+#[utoipa::path(
+    post,
+    path = "/api/strategies",
+    tag = "Strategies",
+    request_body = CreateStrategyRequest,
+    responses(
+        (status = 200, description = "Strategy created", body = StrategyResponse),
+        (status = 503, description = "Database unavailable")
+    )
+)]
 async fn create_strategy(
     State(state): State<AppState>,
     Json(request): Json<CreateStrategyRequest>,
@@ -224,6 +260,20 @@ async fn create_strategy(
 }
 
 /// Update a strategy
+#[utoipa::path(
+    put,
+    path = "/api/strategies/{id}",
+    tag = "Strategies",
+    params(
+        ("id" = i64, Path, description = "Strategy ID")
+    ),
+    request_body = UpdateStrategyRequest,
+    responses(
+        (status = 200, description = "Strategy updated", body = StrategyResponse),
+        (status = 404, description = "Strategy not found"),
+        (status = 503, description = "Database unavailable")
+    )
+)]
 async fn update_strategy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -264,6 +314,19 @@ async fn update_strategy(
 }
 
 /// Delete a strategy
+#[utoipa::path(
+    delete,
+    path = "/api/strategies/{id}",
+    tag = "Strategies",
+    params(
+        ("id" = i64, Path, description = "Strategy ID")
+    ),
+    responses(
+        (status = 204, description = "Strategy deleted"),
+        (status = 404, description = "Strategy not found"),
+        (status = 503, description = "Database unavailable")
+    )
+)]
 async fn delete_strategy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -285,8 +348,101 @@ async fn delete_strategy(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        health_check,
+        metrics_handler,
+        list_strategies,
+        get_strategy,
+        create_strategy,
+        update_strategy,
+        delete_strategy
+    ),
+    components(schemas(
+        HealthResponse,
+        StrategyResponse,
+        CreateStrategyRequest,
+        UpdateStrategyRequest,
+        StrategyConfig,
+        StrategyQuery,
+        crate::models::strategy::Rule,
+        crate::models::strategy::RuleType,
+        crate::models::strategy::Condition,
+        crate::models::strategy::IndicatorType,
+        crate::models::strategy::Comparison,
+        crate::models::strategy::LogicalOperator,
+        crate::models::strategy::AggregationConfig,
+        crate::models::strategy::AggregationMethod,
+        crate::models::strategy::SignalThresholds
+    )),
+    tags(
+        (name = "Health", description = "Health check endpoints"),
+        (name = "Metrics", description = "Metrics endpoints"),
+        (name = "Strategies", description = "Strategy management endpoints")
+    ),
+    info(
+        title = "Perptrix API",
+        description = "API for the Perptrix signal engine - a trading strategy evaluation system",
+        version = "0.1.0"
+    )
+)]
+struct ApiDoc;
+
+/// Middleware to track HTTP request metrics
+async fn metrics_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Skip metrics tracking for the /metrics endpoint to avoid potential recursion issues
+    let path = request.uri().path();
+    if path == "/metrics" {
+        return next.run(request).await;
+    }
+
+    let start = Instant::now();
+    let method = request.method().clone();
+    let path = path.to_string();
+
+    // Increment in-flight requests
+    state.metrics.http_requests_in_flight.inc();
+
+    // Process request
+    let response = next.run(request).await;
+    let status = response.status();
+    let duration = start.elapsed();
+
+    // Decrement in-flight requests
+    state.metrics.http_requests_in_flight.dec();
+
+    // Record metrics
+    state.metrics.http_requests_total.inc();
+    state
+        .metrics
+        .http_request_duration_seconds
+        .observe(duration.as_secs_f64());
+
+    // Log if error status
+    if status.is_server_error() {
+        tracing::error!(
+            method = %method,
+            path = %path,
+            status = %status,
+            duration_ms = duration.as_millis(),
+            "HTTP request error"
+        );
+    }
+
+    response
+}
+
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        .merge(
+            SwaggerUi::new("/docs")
+                .url("/docs/openapi.json", ApiDoc::openapi())
+        )
         .route("/health", get(health_check))
         .route("/metrics", get(metrics_handler))
         .route("/api/strategies", get(list_strategies))
@@ -339,6 +495,10 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     info!(port = port, "HTTP server listening on port {}", port);
     info!(
         "Metrics endpoint available at http://0.0.0.0:{}/metrics",
+        port
+    );
+    info!(
+        "API documentation available at http://0.0.0.0:{}/docs",
         port
     );
     axum::serve(listener, app).await?;

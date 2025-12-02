@@ -25,11 +25,13 @@ Perptrix implements a signal engine based on the [RFC](https://github.com/lucast
 - **Perp**: Funding Rate, Open Interest
 
 **Core Engine:**
-- Signal aggregation with category-based scoring (`src/engine/aggregator.rs`)
+- Flexible strategy builder system with rule-based evaluation (`src/strategies/evaluator.rs`)
+- Support for conditions, groups, and weighted aggregation
+- Multiple aggregation methods (Sum, WeightedSum, Majority, All, Any)
 - Direction thresholds and ATR-driven SL/TP logic (`src/signals/decision.rs`)
-- Signal evaluation orchestrator (`src/signals/engine.rs`)
-- QuestDB persistence layer for candles and signals (`src/db/questdb.rs`)
+- QuestDB persistence layer for candles, signals, and strategies (`src/db/questdb.rs`)
 - Redis caching layer for fast signal evaluation (`src/cache/redis.rs`)
+- Strategy management API (see http://localhost:8080/docs for API documentation)
 - Unit + integration tests covering indicators and multiple market regimes (`tests/**`)
 
 **Market Data Integration:**
@@ -43,6 +45,7 @@ Perptrix implements a signal engine based on the [RFC](https://github.com/lucast
 - Separated services: API server, WebSocket service, and workers
 - Production-ready job queue system using Apalis (Redis backend)
 - HTTP API server with health, metrics, and tracing middleware
+- Interactive API documentation with Swagger UI at `/docs`
 - WebSocket service for real-time market data ingestion
 - Background workers for signal evaluation (horizontally scalable)
 - Prometheus metrics + OpenTelemetry tracing pipelines wired to Grafana/Tempo
@@ -135,6 +138,7 @@ The system consists of three independent services:
 
 2. **API Server** (Horizontally Scalable)
    - HTTP API with health check, metrics, and business logic endpoints
+   - Interactive API documentation with Swagger UI at `/docs`
    - Stateless - can run multiple instances behind a load balancer
    - Reads from Redis/QuestDB
 
@@ -148,7 +152,7 @@ The system consists of three independent services:
 
 ```
 perptrix/
-  config.example.json   # Example configuration file with category weights
+  config.example.json   # Example configuration file (legacy category weights)
   src/
     bin/                # Executable binaries
       api-server.rs     # HTTP API server (stateless, scalable)
@@ -157,7 +161,7 @@ perptrix/
     common/             # Shared helpers (math utilities: EMA, SMA, std dev)
     config/             # Configuration management (JSON-based config)
     core/               # Core runtime components
-      ├── http.rs       # HTTP endpoints (health check, metrics)
+      ├── http.rs       # HTTP endpoints (health check, metrics, API docs, strategies)
       ├── runtime.rs    # Apalis worker setup
       └── scheduler.rs  # Cron-based job scheduler
     db/                 # Persistence adapters (QuestDB)
@@ -168,7 +172,9 @@ perptrix/
       ├── types.rs      # Job type definitions
       └── workflow.rs   # Workflow utilities
     evaluation/         # Signal scoring and validation utilities
-    engine/             # Signal aggregation and scoring
+    strategies/         # Strategy builder system
+      └── evaluator.rs  # Rule-based strategy evaluation engine
+    engine/             # Legacy signal aggregation (deprecated in favor of strategy builder)
       ├── aggregator.rs # Category-based signal aggregation (integer scoring)
       └── signal.rs     # Trading signal types and market bias
     indicators/         # Indicator implementations organized by category
@@ -306,8 +312,7 @@ docker-compose down -v
 
 - **QuestDB Console**: http://localhost:9000
 - **API Server**: http://localhost:8080
-  - Health: http://localhost:8080/health
-  - Metrics: http://localhost:8080/metrics
+  - API Documentation: http://localhost:8080/docs (Swagger UI)
 - **Grafana**: http://localhost:3000 (default credentials: admin/admin)
 - **Prometheus**: http://localhost:9090
 - **Tempo**: http://localhost:3200
@@ -452,22 +457,9 @@ EVAL_INTERVAL_SECONDS=60 SYMBOLS=BTC,ETH cargo run --bin worker
 - `SYMBOLS` - Comma-separated list of symbols to evaluate (required)
 - `WORKER_CONCURRENCY` - Number of concurrent jobs per worker (default: number of symbols)
 
-### Health Check
+### API Documentation
 
-The API server exposes a health check endpoint:
-
-```bash
-curl http://localhost:8080/health
-```
-
-Response:
-```json
-{
-  "status": "healthy",
-  "uptime_seconds": 0,
-  "service": "perptrix-signal-engine"
-}
-```
+Complete API documentation is available at http://localhost:8080/docs (Swagger UI). This includes all endpoints, request/response schemas, and an interactive testing interface.
 
 ### How It Works
 
@@ -475,7 +467,7 @@ Response:
 2. Updates are stored in **Redis** (cache) and **QuestDB** (persistent storage)
 3. **Workers** periodically enqueue `FetchCandlesJob` for each symbol (via cron scheduler)
 4. Jobs are processed in sequence: FetchCandles → EvaluateSignal → StoreSignal
-5. **API Server** provides endpoints to query signals, metrics, and health status
+5. **API Server** provides HTTP endpoints to query signals, metrics, and health status (see http://localhost:8080/docs for API documentation)
 
 All services communicate via Redis/QuestDB - there's no direct coupling between services.
 
@@ -525,102 +517,158 @@ To view metrics and traces:
 
 ### Indicator System
 
-The signal engine uses 10 indicators organized into 5 categories. Each indicator produces signals that are scored and aggregated to generate the final trading signal.
+The strategy builder supports 10 indicators that can be used in custom rules. Each indicator can be evaluated using numeric comparisons or signal states to generate trading signals.
 
-#### Momentum Indicators (25% weight)
+#### Momentum Indicators
 
 **RSI (Relative Strength Index) - 14 period**
 - Measures overbought/oversold conditions
 - Detects bullish/bearish divergences
-- Signals: Oversold (+1), Overbought (-1), Divergences (±2)
+- **Numeric comparisons**: RSI value (0-100)
+- **Signal states**: "Oversold", "Overbought", "BullishDivergence", "BearishDivergence"
 
 **MACD (Moving Average Convergence Divergence) - 12/26/9**
 - Tracks momentum changes via EMA crossovers
 - Identifies trend reversals and momentum shifts
-- Signals: Bullish/Bearish Cross (±2), Momentum (±1)
+- **Numeric comparisons**: MACD value, MACD signal value, MACD histogram
+- **Signal states**: "BullishCross", "BearishCross", "BullishMomentum", "BearishMomentum"
 
-#### Trend Indicators (30% weight)
+#### Trend Indicators
 
 **EMA Crossover - 20/50 periods**
 - Identifies trend direction and strength
 - Detects golden cross (bullish) and death cross (bearish)
-- Signals: Bullish/Bearish Cross (±2), Strong Trend (±1)
+- **Numeric comparisons**: EMA fast value, EMA slow value
+- **Signal states**: "BullishCross", "BearishCross", "StrongUptrend", "StrongDowntrend"
 
 **SuperTrend - 10 period, 3.0 multiplier**
 - Dynamic trailing stop indicator
 - Identifies trend flips and continuation
-- Signals: Bullish/Bearish Flip (±2), Trend Continuation (±1)
+- **Numeric comparisons**: SuperTrend value
+- **Signal states**: Available via indicator signal types
 
-#### Volatility Indicators (15% weight)
+#### Volatility Indicators
 
 **Bollinger Bands - 20 SMA, 2σ**
 - Measures volatility and price extremes
 - Detects breakouts, squeezes, and mean reversion
-- Signals: Upper/Lower Breakout (±1), Squeeze/Mean Reversion (informational)
+- **Numeric comparisons**: Upper band, middle band, lower band values
+- **Signal states**: Available via indicator signal types
 
 **ATR (Average True Range) - 14 period**
 - Measures market volatility
 - Classifies volatility regime (Low/Normal/Elevated/High)
-- Used for SL/TP calculation and risk assessment
+- **Numeric comparisons**: ATR value
+- **Used for**: SL/TP calculation (automatic, not used in rules)
 
-#### Volume Indicators (15% weight)
+#### Volume Indicators
 
 **OBV (On-Balance Volume)**
 - Confirms price movements with volume
 - Detects volume divergences
-- Signals: Bullish/Bearish Divergence (±2), Confirmation (+1)
+- **Signal states**: Available via indicator signal types
 
 **Volume Profile**
 - Identifies high/low volume nodes (POC)
 - Detects support/resistance levels based on volume
-- Signals: POC Support (+1), POC Resistance (-1), Near LVN (informational)
+- **Signal states**: Available via indicator signal types
 
-#### Perp Indicators (15% weight)
+#### Perp Indicators
 
 **Open Interest**
 - Tracks new money entering/leaving the market
 - Identifies squeeze conditions
-- Signals: Bullish/Bearish Expansion (±2), Squeeze Conditions (±1)
+- **Signal states**: Available via indicator signal types
 
 **Funding Rate - 24-hour rolling average**
-- Measures perpetual swap funding bias with live + historical pulls
-- Detects extreme positioning/crowding and widens SL/TP when necessary
-- Signals: Extreme long bias (bearish fade), extreme short bias (bullish squeeze), moderate lean adjusts perp score ±1
+- Measures perpetual swap funding bias
+- Detects extreme positioning/crowding
+- **Numeric comparisons**: Funding rate value
+- **Signal states**: Available via indicator signal types
 
-### Signal Aggregation
+### Strategy Builder System
 
-Indicators are combined using a category-based scoring system:
+Perptrix uses a flexible rule-based strategy builder that allows you to create custom trading strategies without modifying code. Strategies are defined using a combination of rules, conditions, and aggregation methods.
 
-1. **Category Scoring**: Each category receives an integer score from -3 to +3 (or -2 to +2 for volatility/volume/perp):
-   - Positive scores indicate bullish signals
-   - Negative scores indicate bearish signals
-   - Zero indicates neutral
+#### Strategy Components
 
-2. **Total Score**: All category scores are summed to produce a total score
+**1. Rules**
+Rules are the building blocks of a strategy. Each rule can be:
+- **Condition**: A single indicator check (e.g., "RSI is Oversold" or "MACD > 0")
+- **Group**: Multiple conditions combined with AND/OR logic
+- **WeightedGroup**: A group with a custom weight for aggregation
 
-3. **Market Bias**: The total score determines market bias:
-   - ≥ 7: Strong Bullish
-   - ≥ 3: Bullish
-   - -3 to 3: Neutral
-   - ≤ -3: Bearish
-   - ≤ -7: Strong Bearish
+**2. Conditions**
+Conditions evaluate indicators using:
+- **Indicator Type**: MACD, RSI, EMA, SuperTrend, Bollinger, ATR, OBV, VolumeProfile, FundingRate, OpenInterest
+- **Comparison**: GreaterThan, LessThan, Equal, SignalState, etc.
+- **Threshold**: Numeric value for comparisons (optional)
+- **Signal State**: Pre-defined signal states like "Oversold", "BullishCross", etc.
 
-4. **Position**: Market bias maps to trading position:
-   - Strong Bullish / Bullish → Long
-   - Neutral → Neutral
-   - Bearish / Strong Bearish → Short
+**3. Aggregation Methods**
+Rule results are combined using one of these methods:
+- **Sum**: Simple sum of all rule scores
+- **WeightedSum**: Sum weighted by rule weights
+- **Majority**: Majority vote (positive vs negative scores)
+- **All**: All rules must pass
+- **Any**: At least one rule must pass
 
-5. **Confidence**: Calculated based on:
-   - Alignment of category signals (more alignment = higher confidence)
-   - Trend and momentum alignment bonus (+20% if aligned)
-   - Misalignment penalty (-20% if not aligned)
+**4. Signal Thresholds**
+The aggregated score is compared against thresholds:
+- **long_min**: Minimum score for Long signal
+- **short_max**: Maximum score for Short signal
+- Scores between these thresholds result in Neutral
 
-6. **Risk Assessment**: Considers:
-   - Volatility regime (high volatility increases risk)
-   - Extreme funding rates (increase risk when trading with the crowd, reduce it when fading extremes)
-   - Weak total score (increases risk)
-   - RSI divergences (decreases risk)
-   - Funding-driven SL/TP widening when crowds are stretched (protects against forced exits)
+#### How It Works
+
+1. **Rule Evaluation**: Each rule in the strategy is evaluated against current indicator values
+2. **Scoring**: Rules produce integer scores (positive for bullish, negative for bearish)
+3. **Aggregation**: Rule scores are combined using the configured aggregation method
+4. **Signal Generation**: The total score is compared to thresholds to determine Long/Short/Neutral
+5. **Confidence**: Calculated based on score magnitude relative to maximum possible score
+6. **SL/TP**: Stop loss and take profit percentages are calculated from ATR
+
+#### Example Strategy
+
+```json
+{
+  "name": "Momentum Reversal",
+  "symbol": "BTC-USD",
+  "config": {
+    "rules": [
+      {
+        "id": "rsi_oversold",
+        "type": "Condition",
+        "weight": 2.0,
+        "condition": {
+          "indicator": "RSI",
+          "comparison": "SignalState",
+          "signal_state": "Oversold"
+        }
+      },
+      {
+        "id": "ema_bullish",
+        "type": "Condition",
+        "weight": 1.5,
+        "condition": {
+          "indicator": "EMA",
+          "comparison": "SignalState",
+          "signal_state": "BullishCross"
+        }
+      }
+    ],
+    "aggregation": {
+      "method": "WeightedSum",
+      "thresholds": {
+        "long_min": 3,
+        "short_max": -3
+      }
+    }
+  }
+}
+```
+
+This strategy generates a Long signal when the weighted sum of rule scores is ≥ 3, and a Short signal when ≤ -3.
 
 ## 🧪 Testing
 
@@ -630,45 +678,108 @@ Run all tests:
 cargo test
 ```
 
-## ⚙️ Signal Engine Configuration
+## ⚙️ Strategy Configuration
 
-### Category Weights
+### Creating Strategies
 
-Category weights are configurable via a JSON configuration file. The default weights are:
-- **Momentum**: 25% (MACD, RSI)
-- **Trend**: 30% (EMA, SuperTrend)
-- **Volatility**: 15% (Bollinger Bands, ATR)
-- **Volume**: 15% (OBV, Volume Profile)
-- **Perp**: 15% (Funding Rate, Open Interest)
+Strategies are created via the API (see http://localhost:8080/docs for API documentation) or can be stored in QuestDB. Each strategy defines:
 
-**Note:** The aggregator currently uses integer scoring (-3 to +3 per category) rather than applying these percentage weights directly. The weights are stored in the configuration for future use and documentation purposes.
+1. **Rules**: List of conditions or groups to evaluate
+2. **Aggregation**: Method to combine rule results and thresholds for signal generation
 
-#### Configuring Weights
-
-Create a `config.json` file (or use `config.example.json` as a template) with your desired category weights:
+#### Strategy Structure
 
 ```json
 {
-  "category_weights": {
-    "momentum": 0.25,
-    "trend": 0.30,
-    "volatility": 0.15,
-    "volume": 0.15,
-    "perp": 0.15
+  "name": "My Strategy",
+  "symbol": "BTC-USD",
+  "config": {
+    "rules": [
+      {
+        "id": "rule_1",
+        "type": "Condition",
+        "weight": 2.0,
+        "condition": {
+          "indicator": "RSI",
+          "comparison": "SignalState",
+          "signal_state": "Oversold"
+        }
+      }
+    ],
+    "aggregation": {
+      "method": "WeightedSum",
+      "thresholds": {
+        "long_min": 3,
+        "short_max": -3
+      }
+    }
   }
 }
 ```
 
-Weights should sum to 1.0 (100%).
+### Rule Types
 
-### Direction Thresholds
+**Condition Rule**: Single indicator check
+```json
+{
+  "id": "rsi_check",
+  "type": "Condition",
+  "weight": 1.0,
+  "condition": {
+    "indicator": "RSI",
+    "comparison": "GreaterThan",
+    "threshold": 70.0
+  }
+}
+```
 
-The signal engine uses integer scores to determine market bias, which maps to trading positions:
-- **Long**: Total score ≥ 3 (Bullish or Strong Bullish bias)
-- **Short**: Total score ≤ -3 (Bearish or Strong Bearish bias)
-- **Neutral**: Total score between -3 and 3
+**Group Rule**: Multiple conditions with AND/OR logic
+```json
+{
+  "id": "momentum_group",
+  "type": "Group",
+  "operator": "AND",
+  "children": [
+    {
+      "id": "rsi_oversold",
+      "type": "Condition",
+      "condition": {
+        "indicator": "RSI",
+        "comparison": "SignalState",
+        "signal_state": "Oversold"
+      }
+    },
+    {
+      "id": "macd_bullish",
+      "type": "Condition",
+      "condition": {
+        "indicator": "MACD",
+        "comparison": "SignalState",
+        "signal_state": "BullishCross"
+      }
+    }
+  ]
+}
+```
 
-**Note:** The debug output shows both the integer score (used for decision making) and a normalized score (0-1 range) for reference. The integer score thresholds are what actually determine the signal direction.
+### Aggregation Methods
+
+- **Sum**: Simple sum of all rule scores
+- **WeightedSum**: Sum weighted by rule weights
+- **Majority**: Majority vote (positive vs negative)
+- **All**: All rules must pass
+- **Any**: At least one rule must pass
+
+### Signal Thresholds
+
+Thresholds determine when signals are generated:
+- **long_min**: Minimum score for Long signal (default: 3)
+- **short_max**: Maximum score for Short signal (default: -3)
+- Scores between these thresholds result in Neutral
+
+### Managing Strategies
+
+Strategies can be managed via the API. See the API documentation at http://localhost:8080/docs for complete request/response schemas and examples.
 
 ### SL/TP Calculation
 - **Stop Loss**: ATR × 1.2 (as percentage of price)
@@ -701,7 +812,9 @@ The signal engine uses integer scores to determine market bias, which maps to tr
 - **Volatility Indicators**: Bollinger Bands (20 SMA, 2σ), ATR (14)
 - **Volume Indicators**: OBV, Volume Profile
 - **Perp Indicators**: Funding Rate, Open Interest
-- Category-based aggregation with integer scoring
+- Strategy builder system with rule-based evaluation
+- Support for conditions, groups, and weighted aggregation
+- Multiple aggregation methods (Sum, WeightedSum, Majority, All, Any)
 - Signal decision engine (Long/Short/Neutral thresholds)
 - SL/TP calculation from ATR
 - Cloud runtime with HTTP health check
@@ -724,6 +837,8 @@ The signal engine uses integer scores to determine market bias, which maps to tr
 - Automatic retries with exponential backoff
 - Horizontal scalability for API servers and workers
 - WebSocket service as singleton for data ingestion
+- Interactive API documentation with Swagger UI at `/docs`
+- Strategy management API
 
 ### 🔜 Phase 3 — Remaining
 - Real-time funding rate and open interest updates

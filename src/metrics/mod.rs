@@ -115,8 +115,10 @@ impl Metrics {
 
     /// Export metrics in Prometheus text format
     pub fn export(&self) -> Result<String, prometheus::Error> {
-        let encoder = TextEncoder::new();
+        // Use the registry directly to gather metrics
+        // This avoids potential issues with cloning or circular references
         let metric_families = self.registry.gather();
+        let encoder = TextEncoder::new();
         encoder.encode_to_string(&metric_families)
     }
 }
